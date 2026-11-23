@@ -5,8 +5,8 @@ miniAOD **data** ntuples (v34): the SVs, their tracks and the analysis observabl
 across eras and years with statistical tests. Only the SV control regions are ever filled
 (leptonic dxySig < 500, hadronic dxySig < 800); the blinding is applied in the fill stage.
 
-Status: **step 1 (file catalog)** and **step 2 (selection + blinding)** done. Fill, condor,
-merge and plotting are still to come.
+Status: steps 1-3 done (catalog, selection + blinding, fill stage). Condor submission, merge
+and plotting are still to come.
 
 ## Environment
 
@@ -58,7 +58,29 @@ Observations from the parity runs, to be followed up by the fill stage:
 * Events without a reconstructed PV get the beamspot-fallback PV (PV_npvs == 1, one fixed position
   per run): ~1.7% of events in 2016F/2018D, 0.06% in 2024H. SV dxy is measured from this PV.
 * ~2% of Run 2 SVs (2016F, 2018D) have an invalid dxyError; none in 2024H/G. They are not in
-  fake-PV events.
+  fake-PV events. Run 2 SVs also have negative diagonal covariance entries (Vertex_cxx/cyy/czz < 0,
+  down to -78 in 2018D; 0.4% of 2-track SVs in 2018B after selection), Run 3 none: the likely origin
+  of the invalid errors. Both are histogrammed (`negCovDiag`, `cxx`, `sv/badErr`).
+
+## Fill stage (`svval.fill`, `svval.histos`)
+
+    python3 -m svval chunks -m manifests/v34.json --target-gb 5 -o jobs/all_5gb.json   # 881 jobs
+    python3 -m svval fill --jobs jobs/all_5gb.json --job 353 -o outputs/test [--max-files 5]
+
+Reads over xrootd (uproot `XRootDSource`; the CMSSW python has no fsspec-xrootd), about 2.5 s per
+file and ~360 MB RSS, so a 5 GB job takes ~7 min. Per job, in `<outdir>/job_NNNNN`:
+
+* `.root`: one directory per slice (`2018B_HEM`, `2016F_preVFP`, `2024G`, ...) with `event/`,
+  `sv/<category>/<level>/`, `sv/badErr/`, `vtrk/<category>/<level>/`, `track/{all,hyddraLike}/`
+  (852 histograms per slice; categories and variables in `histos.py`). hadd-able.
+* `_lumis.npz`: a row per (file, run, lumi) read, with counters over the selected events
+  (N events, fake PVs, sum N_PV, SVs per class, invalid errors, negative covariances, shared tracks).
+* `.json`: cutflow per slice, entries per file, timing. Written last: it marks a complete job.
+
+Blinding in the fill stage: the veto is the first cutflow step, so nothing stored counts a vetoed
+event (a pre-veto count at full selection would be the inclusive SR yield); every SV-derived number
+uses shown SVs only; every job runs the dxySig-overflow audit and fails instead of writing if it
+finds anything. A file that cannot be opened after 3 tries fails the job.
 
 ## Tests
 

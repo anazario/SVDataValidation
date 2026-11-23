@@ -170,3 +170,27 @@ def test_duplicate_lumis():
     assert d['by_file_pair'] == {'a | c': 2}
     assert d['examples'] == [[1, 2], [2, 7]]
     assert find_duplicate_lumis({'a': keys['a'], 'b': keys['b']})['n_pairs'] == 0
+
+
+def test_lumicheck_groups_by_pd(tmp_path, monkeypatch):
+    """JetMET0 and JetMET1 share lumis by construction: not a duplicate. Same PD: duplicate."""
+    from svval import lumis
+    keys = {'/a0': np.array([_k(1, 1)], np.uint64), '/a1': np.array([_k(1, 1)], np.uint64),
+            '/b0': np.array([_k(1, 1)], np.uint64)}
+    monkeypatch.setattr(lumis, '_work', lambda t: (t[0], keys[t[0]], 5, None))
+
+    class _Pool:                      # run in-process so the monkeypatch applies
+        def __init__(self, max_workers): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def submit(self, fn, arg):
+            from concurrent.futures import Future
+            f = Future(); f.set_result(fn(arg)); return f
+    monkeypatch.setattr(lumis, 'ProcessPoolExecutor', _Pool)
+
+    def rec(p, pd):
+        return cat.FileRecord(path=p, size=1, dataset='d', pd=pd, request='r', stamp='s', year=2024, era='I', period='')
+    rep = lumis.scan_lumis([rec('/a0', 'JetMET0'), rec('/a1', 'JetMET1')], '/x', 't', str(tmp_path))
+    assert rep['duplicate_lumis']['n_pairs'] == 0
+    rep = lumis.scan_lumis([rec('/a0', 'JetMET0'), rec('/b0', 'JetMET0'), rec('/a1', 'JetMET1')], '/x', 't', str(tmp_path))
+    assert rep['duplicate_lumis']['by_group'] == {'2024 JetMET0': 1, '2024 JetMET1': 0}

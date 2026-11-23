@@ -186,30 +186,33 @@ def blinding(sv: ak.Array) -> Tuple[np.ndarray, ak.Array]:
 
 # --------------------------------------------------------------------------- full selection
 
-def select(ev, lumimask, year: Optional[int] = None) -> Tuple[np.ndarray, ak.Array, ak.Array, Dict]:
+def select(ev, lumimask) -> Tuple[np.ndarray, ak.Array, ak.Array, Dict, np.ndarray]:
     """
-    Apply the event selection and the blinding.
-    Returns (event_mask, sv_info, sv_shown, cutflow); cutflow counts are sequential.
-    year is only used for the 2018 HEM-period label (see hem_period()).
+    Apply the blinding and the event selection.
+    Returns (event_mask, sv_info, sv_shown, steps, selCMet); steps maps each step name to the
+    cumulative event mask after it (cutflow = their sums).
+
+    The blinding veto is the FIRST step and the cutflow starts after it ('unvetoed'): no stored
+    number may count vetoed events, otherwise (count before - count after) at the full event
+    selection would be the inclusive SR yield. Counts are sequential.
     """
-    n = len(ev)
+    sv = classify_svs(ev)
+    veto, shown = blinding(sv)
     cut = OrderedDict()
-    cut['all'] = np.ones(n, dtype=bool)
+    cut['unvetoed'] = ~veto
     cut['golden_json'] = lumimask(ak.to_numpy(ev.Evt_run), ak.to_numpy(ev.Evt_luminosityBlock))
     cut['met_filters'] = met_filters(ev)
     cut['trigger'] = trigger_or(ev)
     excl = photon_excluded(ev)
     cut['hem_veto'] = ~hem_veto(ev, excl)
-    cut['met150'] = corrected_met(ev, excl) > MET_CUT
-    sv = classify_svs(ev)
-    veto, shown = blinding(sv)
-    cut['blinding'] = ~veto
-    mask = np.ones(n, dtype=bool)
-    flow = OrderedDict()
+    cmet = corrected_met(ev, excl)
+    cut['met150'] = cmet > MET_CUT
+    mask = np.ones(len(ev), dtype=bool)
+    steps = OrderedDict()
     for name, m in cut.items():
-        mask &= m
-        flow[name] = int(mask.sum())
-    return mask, sv, shown, flow
+        mask = mask & m
+        steps[name] = mask
+    return mask, sv, shown, steps, cmet
 
 
 def hem_period(run: np.ndarray, year: int) -> np.ndarray:

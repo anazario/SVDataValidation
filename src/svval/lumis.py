@@ -2,8 +2,9 @@
 Lumi-section bookkeeping of the catalog: reads only Evt_run / Evt_luminosityBlock.
 
 CRAB data splitting never splits a lumi section across jobs, so a (run, lumi) pair present in
-two files means the same data was processed twice (e.g. a recovery task overlapping its
-parent). The scan also finds unreadable / empty files and records the events per file.
+two files *of the same primary dataset* means the same data was processed twice (e.g. a recovery
+task overlapping its parent). Different PDs share lumis by construction (JetMET0 / JetMET1 split
+one stream by event), so the check is done per (year, PD). The scan also finds unreadable / empty files and records the events per file.
 
 Per-file results are cached (one small .npz each), so rescans only open new files.
 """
@@ -32,7 +33,8 @@ def _cache_file(cache_dir: str, path: str, size: int) -> str:
 def read_file_lumis(url: str, tree: str) -> Tuple[np.ndarray, int]:
     """Unique (run, lumi) pairs as one uint64 key array (run << 32 | lumi), and the entries."""
     import uproot
-    with uproot.open(url) as f:
+    from .fill import open_kwargs
+    with uproot.open(url, **open_kwargs(url)) as f:
         t = f[tree]
         n = t.num_entries
         if n == 0:
@@ -82,7 +84,15 @@ def scan_lumis(records: Sequence[FileRecord], prefix: str, tree: str, cache_dir:
             if progress and (i + 1) % 500 == 0:
                 progress(i + 1, len(tasks))
 
-    dup = find_duplicate_lumis(keys_of)
+    groups = defaultdict(dict)
+    for p, k in keys_of.items():
+        r = by_path[p]
+        groups[f"{r.year} {r.pd}"][p] = k
+    dup_by_group = {g: find_duplicate_lumis(ks) for g, ks in sorted(groups.items())}
+    dup = {'n_pairs': sum(d['n_pairs'] for d in dup_by_group.values()),
+           'by_file_pair': {k: v for d in dup_by_group.values() for k, v in d['by_file_pair'].items()},
+           'by_group': {g: d['n_pairs'] for g, d in dup_by_group.items()},
+           'examples': [e for d in dup_by_group.values() for e in d['examples']][:20]}
     per_era = defaultdict(lambda: [0, 0, 0])   # files, events, lumis
     for p, n in events.items():
         r = by_path[p]

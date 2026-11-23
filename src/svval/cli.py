@@ -73,7 +73,9 @@ def _cmd_lumicheck(a):
         print(f"  {p}\n     {e}")
     print(f"empty trees      : {len(rep['empty_files'])}")
     d = rep['duplicate_lumis']
-    print(f"duplicate lumis  : {d['n_pairs']} (run, lumi) pairs in more than one file")
+    print(f"duplicate lumis  : {d['n_pairs']} (run, lumi) pairs in more than one file of the same year and PD")
+    for g, n in d['by_group'].items():
+        print(f"  {g:<14} {n}")
     for k, n in list(d['by_file_pair'].items())[:10]:
         print(f"  {n:6d}  {k}")
     print(f"\nwrote {out}")
@@ -91,6 +93,26 @@ def _cmd_chunks(a):
     sizes = [c['bytes'] / 1e9 for c in chunks]
     print(f"{len(chunks)} jobs from {len(records)} files; GB/job min {min(sizes):.2f} "
           f"median {sorted(sizes)[len(sizes) // 2]:.2f} max {max(sizes):.2f}\nwrote {a.output}")
+    return 0
+
+
+def _cmd_fill(a):
+    from .fill import run_job
+    with open(a.jobs) as f:
+        spec = json.load(f)
+    job = spec['jobs'][a.job]
+    if job['job'] != a.job:
+        raise SystemExit(f"job list is not indexed by job number ({job['job']} != {a.job})")
+    if a.max_files:
+        job = dict(job, files=job['files'][:a.max_files])
+    man = cat.read_manifest(spec['manifest'])[0] if os.path.exists(spec['manifest']) else {}
+    prefix = a.prefix or man.get('xrootd_prefix', 'root://cmseos.fnal.gov/')
+    tree = man.get('tree', 'tree/llpgtree')
+    out = os.path.join(a.outdir, f"job_{a.job:05d}")
+    print(f"job {a.job}: {job['year']}{job['era']} {job['period']} {len(job['files'])} files "
+          f"{job['bytes'] / 1e9:.2f} GB via {prefix}")
+    res = run_job(job, prefix, tree, out)
+    print(f"done: {res['entries']} entries in {res['seconds']:.0f}s, slices {res['slices']}; wrote {out}.*")
     return 0
 
 
@@ -126,6 +148,14 @@ def main(argv=None):
     ch.add_argument('--target-gb', type=float, default=5.0)
     ch.add_argument('-o', '--output', required=True)
     ch.set_defaults(fn=_cmd_chunks)
+
+    fl = sub.add_parser('fill', help='run one fill job of a job list')
+    fl.add_argument('--jobs', required=True, help='job list written by `svval chunks`')
+    fl.add_argument('--job', type=int, required=True)
+    fl.add_argument('-o', '--outdir', required=True)
+    fl.add_argument('--prefix', help="file prefix (default: the manifest's xrootd prefix)")
+    fl.add_argument('--max-files', type=int, help='only the first N files of the job (testing)')
+    fl.set_defaults(fn=_cmd_fill)
 
     a = p.parse_args(argv)
     return a.fn(a)
