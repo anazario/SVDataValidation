@@ -5,8 +5,8 @@ miniAOD **data** ntuples (v34): the SVs, their tracks and the analysis observabl
 across eras and years with statistical tests. Only the SV control regions are ever filled
 (leptonic dxySig < 500, hadronic dxySig < 800); the blinding is applied in the fill stage.
 
-Status: steps 1-4 done (catalog, selection + blinding, fill stage, condor + merge). Plotting and
-the statistical comparisons are still to come.
+Status: all five stages exist (catalog, selection + blinding, fill, condor + merge, plots and
+statistical comparisons).
 
 ## Environment
 
@@ -78,7 +78,12 @@ Everything runs on the LPC, from `/uscms_data/d3/anazario/SVDataValidation`.
    Look at `checks.json` (duplicate lumis, blinding audit, slices without golden JSON) and
    `cutflow.json`. The histograms are in `all.root` (one directory per slice) and `eras/`.
 
-7. **Plots and era comparisons**: stage 5, not written yet.
+7. **Plots and era comparisons**
+
+       python3 -m svval plot --tag v35_2026        # -> outputs/v35_2026/plots/index.html (~1 min)
+
+   Open `index.html` (copy the `plots/` directory to your laptop, or browse it on the LPC). With one
+   year only, the eras of that year are compared with each other; nothing is compared across runs.
 
 ## Catalog
 
@@ -171,6 +176,41 @@ From the LPC working area, with a grid proxy (`voms-proxy-init -voms cms -valid 
   (`cutflow.json`), and fails on duplicate lumis (per year and PD, across all jobs) or a blinding
   audit failure on the merged file, or a slice with events but none in the golden JSON (`checks.json`).
 * The LPC `condor_*` commands are scripts without a shebang, so they are run through `/bin/sh`.
+
+## Plots and comparisons (`svval.plotting`)
+
+    python3 -m svval plot --tag all_v34 [-s 2016] [--all-vars] [--lumi-csv brilcalc_*.csv] [--formats png,pdf]
+
+Units and groups: a *slice* is an era, split further by detector period and the 2018 HEM period
+(`2016F_preVFP`, `2018B_HEM`, `2024G`). The slices of a year form one group, the years of a Run
+another. Output in `outputs/<tag>/plots/` (or `-o`):
+
+* `stats/comparisons.csv`: every 1D histogram (811), every unit vs the *rest* of its group
+  (never vs a total that contains it): Kolmogorov distance D and p-value, chi2/ndf and p-value of
+  the normalized shapes, mean shift in RMS of the reference. A comparison is **flagged** when
+  KS p < 1e-3 *and* D >= 0.02 (`--p-max`, `--d-min`): with these statistics any drift is
+  significant, so the size of the difference decides. `stats/<group>/ksmap_*`: D per unit and
+  variable for each section (event, SV category and level, SV tracks, Track_), flagged cells starred.
+* `overlays/<group>/`: shape overlays of the units (unit area) with the ratio to the group total,
+  and each unit's D in the legend; a curated list of ~150 histograms (`plots.CURATED`), or all
+  with `--all-vars`.
+* `rates/<group>/`: per unit, SVs per event by class (mu mu, ee, mu+e, no-ID, 3-track, hadronic
+  with/without ID), shared tracks per SV, fractions of SVs with invalid sigma_dxy or negative
+  covariance, fraction of fake-PV events, mean N_PV. Per fb^-1 for whole years (see below); with `--lumi-csv` (brilcalc
+  `lumi --byls --output-style csv`, any unit) also per fb^-1 (each (run, ls) counted once).
+* `trends/<year>/`: the same quantities run by run (runs with >= 100 selected events), with the
+  slice boundaries.
+* `maps/<year>/`: SV x-y (full and inner 10 cm) and r-z maps, also for the invalid-error SVs.
+* `index.html`: merge checks, cutflow per slice, outlier summary per unit, the 60 largest flagged
+  differences (linked to their overlays) and galleries of everything.
+
+Luminosity: the per-year certified luminosities are in `configs/lumi_fb.yaml` (fb^-1, as in
+LLPStandardPlots). `merge` records in `checks.json` the fraction of each year's catalogued ntuple
+files that it contains (`file_coverage`). The luminosity label, and the per-fb^-1 rates of the
+year-vs-year comparisons, are only drawn for years with full coverage: a test tag (`--max-files`),
+a subset (`--ids`) or a partial merge would otherwise divide part of a year's events by the whole
+year's luminosity. Slices within a year get per-fb^-1 rates only from brilcalc per-LS values
+(`--lumi-csv`).
 
 ## Tests
 

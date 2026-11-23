@@ -23,6 +23,7 @@ import numpy as np
 
 from . import condor
 from . import histos
+from .fill import slice_names
 from .lumis import find_duplicate_lumis
 
 
@@ -76,6 +77,8 @@ def merge(tag: str, outdir: str, allow_missing: bool = False, base: Optional[str
     lumi_parts, paths = [], []
     keys_by_group: Dict[str, Dict[str, np.ndarray]] = defaultdict(dict)
     pd_of = _pd_lookup(meta['manifest'])
+    files_per_year = _files_per_year(meta['manifest'])
+    merged_files = defaultdict(set)
     for i in use:
         stem = os.path.join(src, f'job_{i:05d}')
         with open(stem + '.json') as f:
@@ -91,7 +94,8 @@ def merge(tag: str, outdir: str, allow_missing: bool = False, base: Optional[str
             raise MergeError(f"job {i}: lumi table lists {len(files)} files, metadata {len(jm['files'])}")
         offset = len(paths)
         paths.extend(files)
-        lumi_parts.append((t, offset, jm['year'], jm['era'], i))
+        merged_files[int(jm['year'])].update(files)
+        lumi_parts.append((t, offset, jm['year'], jm['era'], jm['period'], i))
         for fi, path in enumerate(files):
             rows = t[t['file'] == fi]
             k = (rows['run'].astype(np.uint64) << np.uint64(32)) | rows['lumi'].astype(np.uint64)
@@ -113,11 +117,13 @@ def merge(tag: str, outdir: str, allow_missing: bool = False, base: Optional[str
 
     # ---- merged lumi table
     rows = []
-    for t, offset, year, era, job in lumi_parts:
+    for t, offset, year, era, period, job in lumi_parts:
         r = np.zeros(len(t), dtype=[('path', np.int32), ('job', np.int32), ('year', np.int16),
-                                    ('era', 'U1')] + [(n, t.dtype[n]) for n in t.dtype.names if n != 'file'])
+                                    ('era', 'U1'), ('slice', 'U24')]
+                     + [(n, t.dtype[n]) for n in t.dtype.names if n != 'file'])
         r['path'] = t['file'] + offset
         r['job'], r['year'], r['era'] = job, year, era
+        r['slice'] = slice_names(year, era, period, t['run'])   # same names as the histogram slices
         for n in t.dtype.names:
             if n != 'file':
                 r[n] = t[n]
@@ -131,7 +137,11 @@ def merge(tag: str, outdir: str, allow_missing: bool = False, base: Optional[str
     checks = {'tag': tag, 'jobs': len(ids), 'merged': len(use), 'missing': missing,
               'duplicate_lumis': {g: d['n_pairs'] for g, d in dups.items()},
               'duplicate_examples': {g: d['by_file_pair'] for g, d in dups.items() if d['n_pairs']},
-              'blinding_audit_failures': bad, 'slices_without_golden_json': no_json}
+              'blinding_audit_failures': bad, 'slices_without_golden_json': no_json,
+              # fraction of each year's catalogued ntuple files in this merge (1 = the whole year):
+              # luminosity labels and per-pb^-1 rates need 1
+              'file_coverage': {str(y): len(f) / files_per_year[y] if files_per_year.get(y) else 0.0
+                                for y, f in sorted(merged_files.items())}}
     with open(os.path.join(outdir, 'cutflow.json'), 'w') as f:
         json.dump(cutflow, f, indent=1)
     with open(os.path.join(outdir, 'checks.json'), 'w') as f:
@@ -150,6 +160,15 @@ def no_golden_json_slices(cutflow: Dict[str, Dict[str, int]]) -> List[str]:
     """Slices whose events all fail the golden JSON: almost surely a missing certification file
     (the lumi mask treats a run absent from every JSON as bad), not bad data."""
     return sorted(sl for sl, c in cutflow.items() if c.get('unvetoed', 0) > 0 and c.get('golden_json', 0) == 0)
+
+
+def _files_per_year(manifest: str) -> Dict[int, int]:
+    with open(manifest) as f:
+        man = json.load(f)
+    out = defaultdict(int)
+    for r in man['files']:
+        out[int(r['year'])] += 1
+    return dict(out)
 
 
 def _pd_lookup(manifest: str) -> Dict[str, str]:

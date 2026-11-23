@@ -184,6 +184,17 @@ def _cmd_merge(a):
     return 0
 
 
+def _cmd_plot(a):
+    from .plotting.run import run
+    merged = a.merged or os.path.join('outputs', a.tag, 'merged')
+    outdir = a.outdir or os.path.join(os.path.dirname(os.path.abspath(merged)), 'plots')
+    years = [y for y, _, _ in cat.parse_selection(a.select)] if a.select else None
+    run(merged, outdir, formats=tuple(a.formats.split(',')), all_vars=a.all_vars, years=years,
+        lumi_csv=a.lumi_csv, d_min=a.d_min, p_max=a.p_max, min_run_events=a.min_run_events,
+        log=lambda m: print(m, flush=True))
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog='svval', description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -257,6 +268,20 @@ def main(argv=None):
     mg.add_argument('--allow-missing', action='store_true')
     mg.add_argument('--hadd-jobs', type=int, default=4)
     mg.set_defaults(fn=_cmd_merge)
+
+    pl = sub.add_parser('plot', help='plots, era/year comparisons and index.html of a merged tag')
+    g = pl.add_mutually_exclusive_group(required=True)
+    g.add_argument('--tag', help='use outputs/<tag>/merged')
+    g.add_argument('--merged', help='merged directory (svval merge output)')
+    pl.add_argument('-o', '--outdir', help='default: <merged>/../plots')
+    pl.add_argument('-s', '--select', help='years only, e.g. 2016 or run3 (eras are compared within years)')
+    pl.add_argument('--formats', default='png,pdf')
+    pl.add_argument('--all-vars', action='store_true', help='overlay every 1D histogram (default: curated list)')
+    pl.add_argument('--lumi-csv', nargs='+', help='brilcalc --byls csv file(s): adds per-pb^-1 rates')
+    pl.add_argument('--d-min', type=float, default=0.02, help='flag threshold on the Kolmogorov distance')
+    pl.add_argument('--p-max', type=float, default=1e-3, help='flag threshold on the KS p-value')
+    pl.add_argument('--min-run-events', type=int, default=100, help='minimum selected events of a run in trends')
+    pl.set_defaults(fn=_cmd_plot)
 
     a = p.parse_args(argv)
     return a.fn(a)
