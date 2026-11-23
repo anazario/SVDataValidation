@@ -98,21 +98,87 @@ def _cmd_chunks(a):
 
 def _cmd_fill(a):
     from .fill import run_job
-    with open(a.jobs) as f:
-        spec = json.load(f)
-    job = spec['jobs'][a.job]
-    if job['job'] != a.job:
-        raise SystemExit(f"job list is not indexed by job number ({job['job']} != {a.job})")
+    if a.job_file:
+        with open(a.job_file) as f:
+            job = json.load(f)              # self-contained spec written by `svval submit`
+        prefix, tree = a.prefix or job['prefix'], job['tree']
+    else:
+        if a.job is None:
+            raise SystemExit("--jobs needs --job")
+        with open(a.jobs) as f:
+            spec = json.load(f)
+        job = spec['jobs'][a.job]
+        if job['job'] != a.job:
+            raise SystemExit(f"job list is not indexed by job number ({job['job']} != {a.job})")
+        man = cat.read_manifest(spec['manifest'])[0] if os.path.exists(spec['manifest']) else {}
+        prefix = a.prefix or man.get('xrootd_prefix', 'root://cmseos.fnal.gov/')
+        tree = man.get('tree', 'tree/llpgtree')
     if a.max_files:
         job = dict(job, files=job['files'][:a.max_files])
-    man = cat.read_manifest(spec['manifest'])[0] if os.path.exists(spec['manifest']) else {}
-    prefix = a.prefix or man.get('xrootd_prefix', 'root://cmseos.fnal.gov/')
-    tree = man.get('tree', 'tree/llpgtree')
-    out = os.path.join(a.outdir, f"job_{a.job:05d}")
-    print(f"job {a.job}: {job['year']}{job['era']} {job['period']} {len(job['files'])} files "
-          f"{job['bytes'] / 1e9:.2f} GB via {prefix}")
-    res = run_job(job, prefix, tree, out)
+    out = os.path.join(a.outdir, f"job_{job['job']:05d}")
+    print(f"job {job['job']}: {job['year']}{job['era']} {job['period']} {len(job['files'])} files "
+          f"{job['bytes'] / 1e9:.2f} GB via {prefix}", flush=True)
+    res = run_job(job, prefix, tree, out, log=lambda m: print(m, flush=True))
     print(f"done: {res['entries']} entries in {res['seconds']:.0f}s, slices {res['slices']}; wrote {out}.*")
+    return 0
+
+
+def _cmd_submit(a):
+    from . import condor
+    with open(a.jobs) as f:
+        spec = json.load(f)
+    jobs = spec['jobs']
+    if a.select:
+        keep = {(r.year, r.era, r.period) for r in cat.select(cat.read_manifest(spec['manifest'])[1], a.select)}
+        jobs = [j for j in jobs if (j['year'], j['era'], j['period']) in keep]
+    ids = condor.parse_ids(a.ids, [j['job'] for j in jobs])
+    meta = condor.prepare(a.tag, a.jobs, ids, max_files=a.max_files, eos_out=a.eos_out)
+    gb = sum(meta['jobs'][str(i)]['bytes'] for i in ids) / 1e9
+    print(f"tag {a.tag}: {len(ids)} jobs ({gb:.0f} GB{' before max-files' if a.max_files else ''}) "
+          f"-> {meta['eos_out']}")
+    cl = condor.submit(a.tag, ids, dry_run=a.dry_run)
+    print("dry run: prepared " + condor.tag_dir(a.tag) if a.dry_run else f"submitted cluster {cl}")
+    return 0
+
+
+def _print_status(st, verbose):
+    from . import condor
+    n = len(st['ids'])
+    print(f"tag {st['meta']['tag']}: {n} jobs | done {len(st['done'])} | queued {len(st['active'])} "
+          f"| held {len(st['held'])} | failed / not submitted {len(st['failed'])}")
+    for label in ('held', 'failed'):
+        for i in st[label][: (None if verbose else 10)]:
+            print(f"  {label:6s} {i:5d}  {condor.last_error(st['meta']['tag'], i)}")
+
+
+def _cmd_status(a):
+    from . import condor
+    st = condor.status(a.tag)
+    _print_status(st, a.verbose)
+    return 0 if len(st['done']) == len(st['ids']) else 3
+
+
+def _cmd_resubmit(a):
+    from . import condor
+    st = condor.status(a.tag)
+    ids = st['failed'] + (st['held'] if a.include_held else [])
+    if not ids:
+        print("nothing to resubmit")
+        _print_status(st, False)
+        return 0
+    if a.include_held and st['held']:
+        condor._run(['condor_rm', '-constraint', f'SVValTag == "{a.tag}" && JobStatus == 5'])
+    cl = condor.submit(a.tag, sorted(ids), dry_run=a.dry_run)
+    print(f"resubmitted {len(ids)} jobs" + ('' if a.dry_run else f" as cluster {cl}"))
+    return 0
+
+
+def _cmd_merge(a):
+    from .merge import merge
+    outdir = a.outdir or os.path.join('outputs', a.tag, 'merged')
+    checks = merge(a.tag, outdir, allow_missing=a.allow_missing, hadd_jobs=a.hadd_jobs)
+    print(f"merged {checks['merged']}/{checks['jobs']} jobs into {outdir}; duplicate lumis 0; "
+          f"blinding audit ok")
     return 0
 
 
@@ -150,12 +216,42 @@ def main(argv=None):
     ch.set_defaults(fn=_cmd_chunks)
 
     fl = sub.add_parser('fill', help='run one fill job of a job list')
-    fl.add_argument('--jobs', required=True, help='job list written by `svval chunks`')
-    fl.add_argument('--job', type=int, required=True)
+    src = fl.add_mutually_exclusive_group(required=True)
+    src.add_argument('--jobs', help='job list written by `svval chunks` (with --job)')
+    src.add_argument('--job-file', help='single self-contained job spec (as shipped to condor)')
+    fl.add_argument('--job', type=int)
     fl.add_argument('-o', '--outdir', required=True)
     fl.add_argument('--prefix', help="file prefix (default: the manifest's xrootd prefix)")
     fl.add_argument('--max-files', type=int, help='only the first N files of the job (testing)')
     fl.set_defaults(fn=_cmd_fill)
+
+    sb = sub.add_parser('submit', help='prepare and submit fill jobs to condor (LPC)')
+    sb.add_argument('--tag', required=True, help='submission name; outputs go to .../<version>/<tag>/')
+    sb.add_argument('--jobs', required=True, help='job list written by `svval chunks`')
+    sb.add_argument('-s', '--select', help=sel_help + ' (subset of the job list)')
+    sb.add_argument('--ids', help="job ids, e.g. '3,10-12' (default: all, after --select)")
+    sb.add_argument('--max-files', type=int, help='only the first N files of each job (tests)')
+    sb.add_argument('--eos-out', help='EOS output dir /store/... (default /store/user/$USER/SVDataValidation/<version>/<tag>)')
+    sb.add_argument('--dry-run', action='store_true', help='write condor/<tag>/ but do not submit')
+    sb.set_defaults(fn=_cmd_submit)
+
+    stp = sub.add_parser('status', help='done / queued / held / failed jobs of a tag')
+    stp.add_argument('--tag', required=True)
+    stp.add_argument('-v', '--verbose', action='store_true')
+    stp.set_defaults(fn=_cmd_status)
+
+    rs = sub.add_parser('resubmit', help='resubmit the jobs of a tag that are neither done nor queued')
+    rs.add_argument('--tag', required=True)
+    rs.add_argument('--include-held', action='store_true', help='also remove and resubmit held jobs')
+    rs.add_argument('--dry-run', action='store_true')
+    rs.set_defaults(fn=_cmd_resubmit)
+
+    mg = sub.add_parser('merge', help='hadd job outputs, merge lumi tables, duplicate-lumi and blinding checks')
+    mg.add_argument('--tag', required=True)
+    mg.add_argument('-o', '--outdir', help='default outputs/<tag>/merged')
+    mg.add_argument('--allow-missing', action='store_true')
+    mg.add_argument('--hadd-jobs', type=int, default=4)
+    mg.set_defaults(fn=_cmd_merge)
 
     a = p.parse_args(argv)
     return a.fn(a)

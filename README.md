@@ -5,8 +5,8 @@ miniAOD **data** ntuples (v34): the SVs, their tracks and the analysis observabl
 across eras and years with statistical tests. Only the SV control regions are ever filled
 (leptonic dxySig < 500, hadronic dxySig < 800); the blinding is applied in the fill stage.
 
-Status: steps 1-3 done (catalog, selection + blinding, fill stage). Condor submission, merge
-and plotting are still to come.
+Status: steps 1-4 done (catalog, selection + blinding, fill stage, condor + merge). Plotting and
+the statistical comparisons are still to come.
 
 ## Environment
 
@@ -15,6 +15,10 @@ so the code stays 3.9-compatible and condor jobs need no tarball.
 
     cd .../CMSSW_15_1_0_patch5/src && cmsenv && cd -
     export PYTHONPATH=$PWD/src
+
+On the LPC the framework lives in `/uscms_data/d3/anazario/SVDataValidation` (outside the CMSSW
+release area; only `cmsenv` is taken from a release). Manifests, job lists, condor submission dirs
+and merged outputs are created there (all git-ignored); job outputs go to EOS.
 
 ## Catalog
 
@@ -81,6 +85,29 @@ Blinding in the fill stage: the veto is the first cutflow step, so nothing store
 event (a pre-veto count at full selection would be the inclusive SR yield); every SV-derived number
 uses shown SVs only; every job runs the dxySig-overflow audit and fails instead of writing if it
 finds anything. A file that cannot be opened after 3 tries fails the job.
+
+## Condor and merge (`svval.condor`, `svval.merge`)
+
+From the LPC working area, with a grid proxy (`voms-proxy-init -voms cms -valid 192:00`):
+
+    python3 -m svval submit   --tag all_v34 --jobs jobs/all_5gb.json            # 881 jobs
+    python3 -m svval submit   --tag t --jobs jobs/all_5gb.json -s 2024G --ids 353 --max-files 3   # tests
+    python3 -m svval status   --tag all_v34 [-v]
+    python3 -m svval resubmit --tag all_v34 [--include-held]
+    python3 -m svval merge    --tag all_v34                                    # -> outputs/all_v34/merged/
+
+* `condor/<tag>/` holds the per-job specs (each job ships only its own file list), a code tarball
+  (`src/` + `configs/`), the wrapper (`scram project` of CMSSW_15_1_0_patch5 from cvmfs,
+  `svval fill`, `xrdcp` to EOS), the jdl and logs. Re-running `submit` with the same tag adds jobs.
+* Outputs: `/store/user/$USER/SVDataValidation/<version>/<tag>/job_NNNNN{.root,_lumis.npz,.json}`.
+  A job is done when its `.json` is on EOS (copied last). `status` combines that with condor_q
+  (jobs carry the `SVValTag` / `SVValJob` ClassAds); `resubmit` sends every job neither done nor
+  queued and shows the last stderr lines of failures.
+* `merge` requires every job (or `--allow-missing`), hadds per era (`eras/<year><era>.root`) and
+  then everything (`all.root`, all slices), merges the lumi tables (`lumis.npz`), sums the cutflow
+  (`cutflow.json`), and fails on duplicate lumis (per year and PD, across all jobs) or a blinding
+  audit failure on the merged file (`checks.json`).
+* The LPC `condor_*` commands are scripts without a shebang, so they are run through `/bin/sh`.
 
 ## Tests
 

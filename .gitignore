@@ -5,3 +5,4 @@ manifests/*
 !manifests/.gitkeep
 jobs/
 outputs/
+condor/
