@@ -1,0 +1,34 @@
+# v34 KUCMS miniAOD data ntuples used for SV data validation.
+#
+# Only the directories listed here are scanned. Deliberately NOT listed:
+#   kucmsntuple_MET_R18D_SVHPM100_MiniAODv2_v34  (2026-08-31 second processing of 2018D;
+#   ignored by decision, the 2018D files inside kucmsntuple_MET_R18_... are used)
+
+version: v34
+eos_base: /store/group/lpcsusylep/jaking/KUCMSNtuple
+fuse_prefix: /eos/uscms                 # POSIX view of /store on LPC interactive nodes
+xrootd_prefix: root://cmseos.fnal.gov/  # what condor jobs open
+tree: tree/llpgtree
+
+datasets:
+  - {dir: kucmsntuple_MET_R16_SVHPM100_MiniAODv2_v34,  year: 2016}
+  - {dir: kucmsntuple_MET_R17_SVHPM100_MiniAODv2_v34,  year: 2017}
+  - {dir: kucmsntuple_MET_R18_SVHPM100_MiniAODv2_v34,  year: 2018}
+  - {dir: kucmsntuple_JetMET_R22_SVHPM100_MiniAOD_v34, year: 2022}
+  - {dir: kucmsntuple_JetMET_R23_SVHPM100_MiniAOD_v34, year: 2023}
+  - {dir: kucmsntuple_JetMET_R24_SVHPM100_MiniAOD_v34, year: 2024}
+  - {dir: kucmsntuple_JetMET_R25_SVHPM100_MiniAOD_v34, year: 2025}
+  - {dir: kucmsntuple_JetMET_R26_SVHPM100_MiniAOD_v34, year: 2026}
+
+# A file whose path (relative to its dataset dir) contains one of these is skipped.
+exclude:
+  - pattern: backup/
+    reason: copy of the JetMET0 Run2025G recovery task (same files as JetMET0/..._recovery_..._Run2025G)
+
+# File-level detector periods, used as an extra grouping next to the eras.
+# 2016 is split by the HIPM tag in the CRAB request name, not by era letter (2016F has both).
+# 2018 HEM is run-based (from run 319077, inside 2018B), so it is an event-level split in the fill stage.
+periods:
+  2016: {rule: hipm, hipm: preVFP, nohipm: postVFP}
+  2022: {rule: era, preEE: [C, D], postEE: [E, F, G]}
+  2023: {rule: era, preBPix: [B, C], postBPix: [D]}
