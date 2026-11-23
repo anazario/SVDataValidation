@@ -13,8 +13,11 @@ the statistical comparisons are still to come.
 Everything runs in the LPC CMSSW_15_1_0_patch5 python (3.9: uproot, awkward, hist, ROOT),
 so the code stays 3.9-compatible and condor jobs need no tarball.
 
-    cd .../CMSSW_15_1_0_patch5/src && cmsenv && cd -
-    export PYTHONPATH=$PWD/src
+    cd /uscms_data/d3/anazario/SVDataValidation
+    source setup.csh        # tcsh (LPC login shell); bash: source setup.sh
+
+It sets up the CMSSW_15_1_0_patch5 environment (from the release in YOURWORKINGAREA) and puts
+`src/` on PYTHONPATH; without it `python3 -m svval` fails with "No module named svval".
 
 On the LPC the framework lives in `/uscms_data/d3/anazario/SVDataValidation` (outside the CMSSW
 release area; only `cmsenv` is taken from a release). Manifests, job lists, condor submission dirs
