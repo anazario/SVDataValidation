@@ -136,8 +136,9 @@ def _cmd_submit(a):
     gb = sum(meta['jobs'][str(i)]['bytes'] for i in ids) / 1e9
     print(f"tag {a.tag}: {len(ids)} jobs ({gb:.0f} GB{' before max-files' if a.max_files else ''}) "
           f"-> {meta['eos_out']}")
-    cl = condor.submit(a.tag, ids, dry_run=a.dry_run)
-    print("dry run: prepared " + condor.tag_dir(a.tag) if a.dry_run else f"submitted cluster {cl}")
+    cl = condor.submit(a.tag, ids, dry_run=a.dry_run, max_materialize=a.max_mat)
+    lim = f", at most {a.max_mat} in the queue at once" if a.max_mat else ''
+    print(("dry run: prepared " + condor.tag_dir(a.tag)) if a.dry_run else f"submitted cluster {cl}{lim}")
     return 0
 
 
@@ -145,7 +146,8 @@ def _print_status(st, verbose):
     from . import condor
     n = len(st['ids'])
     print(f"tag {st['meta']['tag']}: {n} jobs | done {len(st['done'])} | queued {len(st['active'])} "
-          f"| held {len(st['held'])} | failed / not submitted {len(st['failed'])}")
+          f"| waiting to materialize {len(st['pending'])} | held {len(st['held'])} "
+          f"| failed / not submitted {len(st['failed'])}")
     for label in ('held', 'failed'):
         for i in st[label][: (None if verbose else 10)]:
             print(f"  {label:6s} {i:5d}  {condor.last_error(st['meta']['tag'], i)}")
@@ -168,7 +170,7 @@ def _cmd_resubmit(a):
         return 0
     if a.include_held and st['held']:
         condor._run(['condor_rm', '-constraint', f'SVValTag == "{a.tag}" && JobStatus == 5'])
-    cl = condor.submit(a.tag, sorted(ids), dry_run=a.dry_run)
+    cl = condor.submit(a.tag, sorted(ids), dry_run=a.dry_run, max_materialize=a.max_mat)
     print(f"resubmitted {len(ids)} jobs" + ('' if a.dry_run else f" as cluster {cl}"))
     return 0
 
@@ -233,6 +235,8 @@ def main(argv=None):
     sb.add_argument('--max-files', type=int, help='only the first N files of each job (tests)')
     sb.add_argument('--eos-out', help='EOS output dir /store/... (default /store/user/$USER/SVDataValidation/<version>/<tag>)')
     sb.add_argument('--dry-run', action='store_true', help='write condor/<tag>/ but do not submit')
+    sb.add_argument('--max-mat', type=int, metavar='N',
+                    help='at most N jobs in the queue at once (condor max_materialize); the rest follow as jobs finish')
     sb.set_defaults(fn=_cmd_submit)
 
     stp = sub.add_parser('status', help='done / queued / held / failed jobs of a tag')
@@ -244,6 +248,7 @@ def main(argv=None):
     rs.add_argument('--tag', required=True)
     rs.add_argument('--include-held', action='store_true', help='also remove and resubmit held jobs')
     rs.add_argument('--dry-run', action='store_true')
+    rs.add_argument('--max-mat', type=int, metavar='N', help='as for submit')
     rs.set_defaults(fn=_cmd_resubmit)
 
     mg = sub.add_parser('merge', help='hadd job outputs, merge lumi tables, duplicate-lumi and blinding checks')

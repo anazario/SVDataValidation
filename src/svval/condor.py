@@ -176,7 +176,14 @@ def make_eos_dir(eos_out: str):
     _run(['eos', XRD.rstrip('/'), 'mkdir', '-p', eos_out])
 
 
-def submit(tag: str, ids: List[int], base: Optional[str] = None, dry_run: bool = False) -> Optional[int]:
+def submit(tag: str, ids: List[int], base: Optional[str] = None, dry_run: bool = False,
+           max_materialize: Optional[int] = None) -> Optional[int]:
+    """
+    One submission round (one cluster). max_materialize: at most this many jobs of the cluster in
+    the queue at once (HTCondor late materialization); the rest are added as jobs leave the queue.
+    """
+    if max_materialize is not None and max_materialize < 1:
+        raise CondorError("max_materialize must be >= 1")
     d = tag_dir(tag, base)
     with open(os.path.join(d, 'tag.json')) as f:
         meta = json.load(f)
@@ -191,7 +198,8 @@ def submit(tag: str, ids: List[int], base: Optional[str] = None, dry_run: bool =
     with open(os.path.join(d, 'submit.jdl')) as f:
         body = f.read()
     with open(jdl, 'w') as f:
-        f.write(body + f'queue job from {qfile}\n')
+        f.write(body + (f'max_materialize         = {max_materialize}\n' if max_materialize else '')
+                + f'queue job from {qfile}\n')
     if dry_run:
         return None
     check_proxy()
@@ -232,6 +240,35 @@ def queued_jobs(tag: str) -> Dict[int, str]:
     return q
 
 
+def rounds(tag: str, base: Optional[str] = None) -> List[dict]:
+    """Submission rounds recorded in clusters.txt: cluster, queue file, job ids."""
+    d = tag_dir(tag, base)
+    path = os.path.join(d, 'clusters.txt')
+    out = []
+    if not os.path.exists(path):
+        return out
+    with open(path) as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            with open(os.path.join(d, parts[1])) as q:
+                out.append({'cluster': int(parts[0]), 'queue': parts[1], 'ids': [int(x) for x in q.read().split()]})
+    return out
+
+
+def live_factories(clusters: Iterable[int]) -> Set[int]:
+    """Clusters that still have a late-materialization factory (jobs left to materialize)."""
+    clusters = set(clusters)
+    if not clusters:
+        return set()
+    try:
+        out = _run(['condor_q', '-factory', '-af', 'ClusterId'])
+    except CondorError:
+        return set()
+    return {int(x) for x in out.split() if x.isdigit()} & clusters
+
+
 def last_error(tag: str, job: int, base: Optional[str] = None, n: int = 3) -> str:
     """Tail of the newest stderr of a job and the wrapper exit code, if any."""
     logs = os.path.join(tag_dir(tag, base), 'logs')
@@ -252,6 +289,14 @@ def status(tag: str, base: Optional[str] = None) -> dict:
     queue = queued_jobs(tag)
     held = sorted(i for i, s in queue.items() if s == 'held')
     active = {i for i, s in queue.items() if s in ('idle', 'running', 'transferring', 'suspended')}
-    failed = sorted(set(ids) - done - active - set(held))
+    # late materialization: jobs of a cluster whose factory is alive but which are not in the
+    # queue yet are pending, not failed (otherwise resubmit would submit them twice)
+    rnds = rounds(tag, base)
+    live = live_factories(r['cluster'] for r in rnds)
+    pending = set()
+    for r in rnds:
+        if r['cluster'] in live:
+            pending.update(set(r['ids']) - done - set(queue))
+    failed = sorted(set(ids) - done - active - set(held) - pending)
     return {'meta': meta, 'ids': ids, 'done': sorted(done), 'active': sorted(active), 'held': held,
-            'failed': failed, 'queue': queue}
+            'pending': sorted(pending), 'failed': failed, 'queue': queue}

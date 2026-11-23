@@ -23,6 +23,63 @@ On the LPC the framework lives in `/uscms_data/d3/anazario/SVDataValidation` (ou
 release area; only `cmsenv` is taken from a release). Manifests, job lists, condor submission dirs
 and merged outputs are created there (all git-ignored); job outputs go to EOS.
 
+## Quick start: validating a new production
+
+Example: new ntuples for one full year (here 2026, version v35) have finished on EOS.
+Everything runs on the LPC, from `/uscms_data/d3/anazario/SVDataValidation`.
+
+1. **Update and set up**
+
+       cd /uscms_data/d3/anazario/SVDataValidation && git pull
+       source setup.csh
+       voms-proxy-init -voms cms -valid 192:00
+
+2. **Golden JSON.** Make sure the year's certification JSON is in `configs/golden_json/`
+   (a run missing from every JSON fails the lumi mask, so without it every event is rejected;
+   `merge` stops with an error if a slice has events but none pass). If a newer JSON replaces an
+   old one, remove the old file (overlapping ranges are an error).
+
+3. **Dataset config.** Copy `configs/datasets_v34.yaml` to `configs/datasets_v35.yaml` and list
+   only the new directories, e.g.
+
+       version: v35
+       datasets:
+         - {dir: kucmsntuple_JetMET_R26_SVHPM100_MiniAOD_v35, year: 2026}
+
+   Add `exclude:` patterns for backup / duplicate directories, and a `periods:` entry if the year
+   has detector periods (optional).
+
+4. **Catalog, checks, job list**
+
+       python3 -m svval catalog   -c configs/datasets_v35.yaml -o manifests/v35.json
+       python3 -m svval summary   -m manifests/v35.json
+       python3 -m svval lumicheck -m manifests/v35.json -j 8        # optional; merge checks lumis too
+       python3 -m svval chunks    -m manifests/v35.json --target-gb 5 -o jobs/v35_2026.json
+
+   `catalog` fails on directories that do not follow the CRAB layout and lists eras made by
+   several CRAB requests for review. With a manifest of several years, `-s 2026` (or `-s 2026C`,
+   `-s run3`) restricts `summary`, `lumicheck` and `chunks`.
+
+5. **Submit, follow, resubmit**
+
+       python3 -m svval submit   --tag v35_2026 --jobs jobs/v35_2026.json [--max-mat 200]
+       python3 -m svval status   --tag v35_2026          # repeat until everything is done
+       python3 -m svval resubmit --tag v35_2026          # failed jobs (shows their last stderr)
+
+   `--max-mat N` keeps at most N jobs in the queue at once (condor `max_materialize`); the rest
+   are added as jobs finish, and `status` counts them as "waiting to materialize". Outputs go to
+   `/store/user/$USER/SVDataValidation/v35/v35_2026/`. A quick test first:
+   `submit --tag v35_test --jobs jobs/v35_2026.json --ids 0 --max-files 3`.
+
+6. **Merge** (all jobs must be done, or `--allow-missing`)
+
+       python3 -m svval merge --tag v35_2026     # -> outputs/v35_2026/merged/
+
+   Look at `checks.json` (duplicate lumis, blinding audit, slices without golden JSON) and
+   `cutflow.json`. The histograms are in `all.root` (one directory per slice) and `eras/`.
+
+7. **Plots and era comparisons**: stage 5, not written yet.
+
 ## Catalog
 
 Input datasets, exclusions and detector periods are in `configs/datasets_v34.yaml`.
@@ -93,7 +150,7 @@ finds anything. A file that cannot be opened after 3 tries fails the job.
 
 From the LPC working area, with a grid proxy (`voms-proxy-init -voms cms -valid 192:00`):
 
-    python3 -m svval submit   --tag all_v34 --jobs jobs/all_5gb.json            # 881 jobs
+    python3 -m svval submit   --tag all_v34 --jobs jobs/all_5gb.json [--max-mat 200]   # 881 jobs
     python3 -m svval submit   --tag t --jobs jobs/all_5gb.json -s 2024G --ids 353 --max-files 3   # tests
     python3 -m svval status   --tag all_v34 [-v]
     python3 -m svval resubmit --tag all_v34 [--include-held]
@@ -106,10 +163,13 @@ From the LPC working area, with a grid proxy (`voms-proxy-init -voms cms -valid 
   A job is done when its `.json` is on EOS (copied last). `status` combines that with condor_q
   (jobs carry the `SVValTag` / `SVValJob` ClassAds); `resubmit` sends every job neither done nor
   queued and shows the last stderr lines of failures.
+* `--max-mat N` (submit and resubmit) sets condor `max_materialize`: at most N jobs of the round in
+  the queue at once. Jobs not materialized yet are not in condor_q; `status` reports them as
+  "waiting to materialize" while the cluster's factory is alive, so `resubmit` never sends them twice.
 * `merge` requires every job (or `--allow-missing`), hadds per era (`eras/<year><era>.root`) and
   then everything (`all.root`, all slices), merges the lumi tables (`lumis.npz`), sums the cutflow
   (`cutflow.json`), and fails on duplicate lumis (per year and PD, across all jobs) or a blinding
-  audit failure on the merged file (`checks.json`).
+  audit failure on the merged file, or a slice with events but none in the golden JSON (`checks.json`).
 * The LPC `condor_*` commands are scripts without a shebang, so they are run through `/bin/sh`.
 
 ## Tests

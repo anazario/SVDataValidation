@@ -54,9 +54,40 @@ def test_prepare_and_dry_run(tmp_path, joblist):
     assert 'arguments               = $(job) /store/user/x/y' in jdl
     assert 'specs/job_$(job).json' in jdl and 'use_x509userproxy       = true' in jdl
 
+    assert 'max_materialize' not in jdl
+    condor.submit('t1', [0, 2], base=base, dry_run=True, max_materialize=25)
+    jdl1 = open(os.path.join(d, 'submit_001.jdl')).read().splitlines()
+    assert jdl1[-2:] == ['max_materialize         = 25', 'queue job from queue_001.txt']
+    with pytest.raises(condor.CondorError):
+        condor.submit('t1', [0], base=base, dry_run=True, max_materialize=0)
+
     with pytest.raises(condor.CondorError):     # job 1 not prepared
         condor.submit('t1', [1], base=base, dry_run=True)
     with pytest.raises(condor.CondorError):     # same tag, other max_files
         condor.prepare('t1', joblist, [1], max_files=3, base=base)
     condor.prepare('t1', joblist, [1], max_files=2, base=base)                   # extending is fine
     assert sorted(json.load(open(os.path.join(d, 'tag.json')))['jobs']) == ['0', '1', '2']
+
+
+def test_merge_flags_slices_without_golden_json():
+    from svval.merge import no_golden_json_slices
+    cf = {'2024G': {'unvetoed': 10, 'golden_json': 9}, '2027B': {'unvetoed': 5, 'golden_json': 0},
+          '2025E': {'unvetoed': 0, 'golden_json': 0}}
+    assert no_golden_json_slices(cf) == ['2027B']
+
+
+def test_status_counts_unmaterialized_jobs_as_pending(tmp_path, joblist, monkeypatch):
+    base = str(tmp_path / 'condor')
+    condor.prepare('t2', joblist, [0, 1, 2], eos_out='/store/user/x/t2', base=base)
+    d = condor.tag_dir('t2', base)
+    condor.submit('t2', [0, 1, 2], base=base, dry_run=True, max_materialize=1)
+    with open(os.path.join(d, 'clusters.txt'), 'w') as f:
+        f.write('777 queue_000.txt 3 now\n')
+    monkeypatch.setattr(condor, 'done_jobs', lambda eos: {0})
+    monkeypatch.setattr(condor, 'queued_jobs', lambda tag: {1: 'running'})
+    monkeypatch.setattr(condor, 'live_factories', lambda cl: {777})
+    st = condor.status('t2', base)
+    assert (st['done'], st['active'], st['pending'], st['failed']) == ([0], [1], [2], [])
+    monkeypatch.setattr(condor, 'live_factories', lambda cl: set())      # factory gone: job 2 failed
+    st = condor.status('t2', base)
+    assert (st['pending'], st['failed']) == ([], [2])

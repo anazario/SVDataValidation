@@ -127,10 +127,11 @@ def merge(tag: str, outdir: str, allow_missing: bool = False, base: Optional[str
 
     # ---- audit and summary
     bad = audit_file(os.path.join(outdir, 'all.root'))
+    no_json = no_golden_json_slices(cutflow)
     checks = {'tag': tag, 'jobs': len(ids), 'merged': len(use), 'missing': missing,
               'duplicate_lumis': {g: d['n_pairs'] for g, d in dups.items()},
               'duplicate_examples': {g: d['by_file_pair'] for g, d in dups.items() if d['n_pairs']},
-              'blinding_audit_failures': bad}
+              'blinding_audit_failures': bad, 'slices_without_golden_json': no_json}
     with open(os.path.join(outdir, 'cutflow.json'), 'w') as f:
         json.dump(cutflow, f, indent=1)
     with open(os.path.join(outdir, 'checks.json'), 'w') as f:
@@ -139,7 +140,16 @@ def merge(tag: str, outdir: str, allow_missing: bool = False, base: Optional[str
         raise MergeError(f"BLINDING AUDIT FAILED on the merged file: {bad[:10]}")
     if n_dup:
         raise MergeError(f"{n_dup} duplicate lumis, see {outdir}/checks.json")
+    if no_json:
+        raise MergeError(f"slices with events but none in the golden JSON: {no_json}. Add the year's "
+                         "certification JSON to configs/golden_json/ and rerun the jobs")
     return checks
+
+
+def no_golden_json_slices(cutflow: Dict[str, Dict[str, int]]) -> List[str]:
+    """Slices whose events all fail the golden JSON: almost surely a missing certification file
+    (the lumi mask treats a run absent from every JSON as bad), not bad data."""
+    return sorted(sl for sl, c in cutflow.items() if c.get('unvetoed', 0) > 0 and c.get('golden_json', 0) == 0)
 
 
 def _pd_lookup(manifest: str) -> Dict[str, str]:
