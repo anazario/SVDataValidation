@@ -125,7 +125,10 @@ def run(merged_dir: str, outdir: str, formats=('png', 'pdf'), all_vars: bool = F
 
     path = write_index(outdir, m, groups, results, painter.written, formats, d_min, p_max, lum, lum_info)
     log(f"done in {time.time() - t0:.0f}s: {sum(len(v) for v in painter.written.values())} plots, "
-        f"{sum(r.flagged for r in results)} flagged comparisons of {len(results)}; {path}")
+        f"{sum(r.flagged for r in results)} flagged comparisons of {len(results)}")
+    d = os.path.abspath(outdir)
+    log(f"\nplots: {d}/\nopen:  {d}/index.html in a browser; from a laptop, copy the directory first:\n"
+        f"       rsync -a <lpc host>:{d}/ <local dir>/   (then open <local dir>/index.html)")
     return path
 
 

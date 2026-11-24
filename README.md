@@ -82,7 +82,10 @@ Everything runs on the LPC, from `/uscms_data/d3/anazario/SVDataValidation`.
 
        python3 -m svval plot --tag v35_2026        # -> outputs/v35_2026/plots/index.html (~1 min)
 
-   Open `index.html` (copy the `plots/` directory to your laptop, or browse it on the LPC). With one
+   The plots are in `outputs/v35_2026/plots/` on the LPC; open `index.html` there. To browse them on
+   a laptop, copy the directory first, e.g.
+   `rsync -a lpc:/uscms_data/d3/anazario/SVDataValidation/outputs/v35_2026/plots/ ~/data/svval_plots/`
+   and open `~/data/svval_plots/index.html`. With one
    year only, the eras of that year are compared with each other; nothing is compared across runs.
 
 ## Catalog
