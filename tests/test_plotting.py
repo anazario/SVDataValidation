@@ -87,6 +87,7 @@ def test_brilcalc_formats_and_summary_block(tmp_path):
                  "#Summary:\n#nfill,nrun,nls,ncms,totdelivered(/pb),totrecorded(/pb)\n1,2,150,150,310.0,250.0\n")
     t = read_brilcalc([str(q)])
     assert t.by_run == {355100: pytest.approx(0.2), 355101: pytest.approx(0.05)}             # /pb -> /fb; no summary row
+    assert t.nls == {355100: 100, 355101: 50}
 
 
 def test_slice_lumis_scale_by_golden_ls_coverage():
@@ -98,9 +99,13 @@ def test_slice_lumis_scale_by_golden_ls_coverage():
     golden = lambda r, l: ~((np.asarray(r) == 1) & (np.asarray(l) == 9))
     counts = {1: 4, 2: 1, 3: 2}                                       # golden LS per run
     vals, info = slice_lumis(t, LumiTable(by_run={1: 8.0, 2: 1.0}), golden, counts)
-    assert vals['2022C'] == pytest.approx(8.0 * 2 / 4)                # 2 of 4 golden LS present
-    assert info['2022C'] == {'ls_present': 2, 'ls_golden': 4, 'runs_without_lumi': []}
+    assert vals['2022C'] == pytest.approx(8.0 * 2 / 4)                # no nls: 2 of 4 golden LS present
+    assert info['2022C'] == {'ls_present': 2, 'ls_golden': 4, 'runs_without_lumi': [], 'runs_short_normtag': []}
     assert info['2022D']['runs_without_lumi'] == [3]
+    # the normtag covers only 1 of run 1's 4 golden LS: 8.0 is the lumi of that one LS
+    vals, info = slice_lumis(t, LumiTable(by_run={1: 8.0, 2: 1.0}, nls={1: 1, 2: 1}), golden, counts)
+    assert vals['2022C'] == pytest.approx(8.0 / 1 * 2)                # average per LS x 2 present
+    assert info['2022C']['runs_short_normtag'] == [1]
     vals, _ = slice_lumis(t, LumiTable(by_ls={(1, 1): 0.5, (1, 2): 0.25, (2, 1): 1.0, (3, 1): 2.0}), golden, counts)
     assert vals == {'2022C': pytest.approx(0.75), '2022D': pytest.approx(3.0)}
 

@@ -7,9 +7,12 @@ Two brilcalc outputs are understood (the format is recognised from the CSV heade
   per LS    brilcalc lumi --byls ... --output-style csv  '#run:fill,ls,time,beamstatus,E(GeV),delivered,recorded,...'
 Any unit in the header (/fb, /pb, /nb, /ub) is converted to fb^-1. The '#Summary' block is ignored.
 
-Per-run values are matched to what was actually processed: a run's luminosity is scaled by the
-fraction of its golden lumi sections present in the merge (CRAB failures, missing jobs), so the
-denominator always matches the events counted. With per-LS values the present sections are summed.
+Per-run values are matched to what was actually processed: the luminosity of a slice is, per run,
+the run's average recorded luminosity per lumi section (recorded / nls of the brilcalc row) times
+the number of its golden lumi sections present in the merge. So missing jobs or CRAB failures do not
+bias the rates, and neither do runs where the normtag covers fewer sections than the golden JSON
+(brilcalc then reports only the overlap; such runs are listed as 'runs_short_normtag'). With per-LS
+values the present sections are summed.
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ _TO_FB = {'/fb': 1.0, '/pb': 1e-3, '/nb': 1e-6, '/ub': 1e-9}
 @dataclass
 class LumiTable:
     by_run: Dict[int, float] = field(default_factory=dict)          # fb^-1
+    nls: Dict[int, int] = field(default_factory=dict)               # lumi sections with a value, per run
     by_ls: Dict[Tuple[int, int], float] = field(default_factory=dict)
     files: list = field(default_factory=list)
 
@@ -59,6 +63,7 @@ def read_brilcalc(paths: Iterable[str]) -> LumiTable:
                         if unit not in _TO_FB:
                             raise ValueError(f"{path}: unknown luminosity unit '{unit}'")
                         scale, i_rec, byls = _TO_FB[unit], h.index(rec), (len(h) > 1 and h[1] == 'ls')
+                        i_nls = h.index('nls') if 'nls' in h else None
                     else:
                         cols = None          # '#Summary:' and its own header: stop reading rows
                     continue
@@ -71,6 +76,8 @@ def read_brilcalc(paths: Iterable[str]) -> LumiTable:
                     out.by_ls[(run, int(p[1].split(':')[0]))] = val
                 else:
                     out.by_run[run] = out.by_run.get(run, 0.0) + val
+                    if i_nls is not None:
+                        out.nls[run] = out.nls.get(run, 0) + int(p[i_nls])
     return out
 
 
@@ -111,14 +118,18 @@ def slice_lumis(t: np.ndarray, table: LumiTable, golden_mask, golden_counts: Dic
             lumi[s] += table.by_ls.get((int(r), int(l)), 0.0)
     info = {}
     for s, runs in present.items():
-        missing_runs = []
+        missing_runs, short_runs = [], []
         n_present = sum(runs.values())
         n_golden = sum(golden_counts.get(r, 0) for r in runs)
         if not table.by_ls:
             for r, n in runs.items():
-                if r in table.by_run and golden_counts.get(r):
-                    lumi[s] += table.by_run[r] * n / golden_counts[r]
-                else:
+                n_lumi = table.nls.get(r) or golden_counts.get(r, 0)     # sections the value covers
+                if r not in table.by_run or n_lumi <= 0:
                     missing_runs.append(r)
-        info[s] = {'ls_present': n_present, 'ls_golden': n_golden, 'runs_without_lumi': sorted(missing_runs)}
+                    continue
+                lumi[s] += table.by_run[r] / n_lumi * n                  # average per LS x LS present
+                if n_lumi < 0.98 * golden_counts.get(r, 0):
+                    short_runs.append(r)
+        info[s] = {'ls_present': n_present, 'ls_golden': n_golden, 'runs_without_lumi': sorted(missing_runs),
+                   'runs_short_normtag': sorted(short_runs)}
     return dict(lumi), info

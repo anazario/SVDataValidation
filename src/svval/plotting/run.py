@@ -150,7 +150,8 @@ summary{cursor:pointer;font-weight:600} .note{color:#666;font-size:13px}"""
 
 
 def _table(headers, rows, left=1):
-    h = ''.join(f'<th class="{"l" if i < left else ""}">{html.escape(str(x))}</th>' for i, x in enumerate(headers))
+    # headers are written by this module (they contain markup such as <sup>), so not escaped
+    h = ''.join(f'<th class="{"l" if i < left else ""}">{x}</th>' for i, x in enumerate(headers))
     body = []
     for cls, r in rows:
         tds = ''.join(f'<td class="{"l" if i < left else ""}">{x}</td>' for i, x in enumerate(r))
@@ -188,10 +189,21 @@ def write_index(outdir, m, groups, results, written, formats, d_min, p_max, lum,
     rows = []
     for s in m.slices:
         c = m.cutflow.get(s.name, {})
-        rows.append(('', [e(s.label)] + [f"{c.get(k, 0):,}" for k in steps]
-                     + [f"{lum.get(s.name, 0):.3f}" if lum else '']))
-    out.append('<h2>Cutflow per slice</h2><p class="note">Counts start after the blinding veto.</p>'
-               + _table(['slice'] + steps + (['L [fb<sup>-1</sup>]'] if lum else ['']), rows))
+        extra = []
+        if lum_info:
+            i = lum_info.get(s.name, {})
+            miss, short = i.get('runs_without_lumi', []), i.get('runs_short_normtag', [])
+            extra = [f"{lum[s.name]:.4f}" if s.name in lum else 'n/a',
+                     f"{i['ls_present'] / i['ls_golden']:.4f}" if i.get('ls_golden') else '',
+                     f"{len(miss)}: {miss[:3]}" if miss else '',
+                     f"{len(short)}: {short[:3]}" if short else '']
+        rows.append(('bad' if extra and extra[2] else '',
+                     [e(s.label)] + [f"{c.get(k, 0):,}" for k in steps] + extra))
+    heads = ['slice'] + steps + (['L [fb<sup>-1</sup>]', 'golden LS present', 'runs without L',
+                                  'runs with normtag &lt; JSON (L extrapolated)'] if lum_info else [])
+    out.append('<h2>Cutflow per slice</h2><p class="note">Counts start after the blinding veto.'
+               + (' L: recorded luminosity (brilcalc, configs/lumi_brilcalc) of the golden lumi sections '
+                  'present in the merge.' if lum_info else '') + '</p>' + _table(heads, rows))
 
     # outliers
     summ = cmp.unit_summary(results)
