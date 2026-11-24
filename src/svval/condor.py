@@ -268,6 +268,29 @@ def queued_jobs(tag: str) -> Dict[int, str]:
     return q
 
 
+def parse_global_job_id(gid: str):
+    """'lpcschedd6.fnal.gov#86608198.86#1764000000' -> ('lpcschedd6.fnal.gov', '86608198.86')."""
+    parts = gid.split('#')
+    if len(parts) < 2 or not re.fullmatch(r'\d+\.\d+', parts[1]):
+        raise CondorError(f"cannot parse GlobalJobId '{gid}'")
+    return parts[0], parts[1]
+
+
+def remove_held(tag: str) -> int:
+    """
+    condor_rm the held jobs of a tag. The LPC condor_rm refuses a bare -constraint ('should not be
+    executed without explicitly targeting a single schedd'), so jobs are removed per schedd by id.
+    """
+    out = _run(['condor_q', '-constraint', f'SVValTag == "{tag}" && JobStatus == 5', '-af', 'GlobalJobId'])
+    by_schedd: Dict[str, List[str]] = {}
+    for line in out.split():
+        schedd, jid = parse_global_job_id(line)
+        by_schedd.setdefault(schedd, []).append(jid)
+    for schedd, ids in sorted(by_schedd.items()):
+        _run(['condor_rm', '-name', schedd] + ids)
+    return sum(len(v) for v in by_schedd.values())
+
+
 def rounds(tag: str, base: Optional[str] = None) -> List[dict]:
     """Submission rounds recorded in clusters.txt: cluster, queue file, job ids."""
     d = tag_dir(tag, base)

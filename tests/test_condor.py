@@ -7,6 +7,28 @@ import pytest
 from svval import condor
 
 
+def test_parse_global_job_id():
+    assert condor.parse_global_job_id('lpcschedd6.fnal.gov#86608198.86#1764000000') == \
+        ('lpcschedd6.fnal.gov', '86608198.86')
+    with pytest.raises(condor.CondorError):
+        condor.parse_global_job_id('garbage')
+
+
+def test_remove_held_targets_each_schedd(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, cwd=None):
+        calls.append(cmd)
+        if cmd[0] == 'condor_q':
+            return ('lpcschedd6.fnal.gov#100.1#1\nlpcschedd6.fnal.gov#100.2#1\n'
+                    'lpcschedd3.fnal.gov#200.0#1\n')
+        return ''
+    monkeypatch.setattr(condor, '_run', fake_run)
+    assert condor.remove_held('all_v34') == 3
+    assert calls[1:] == [['condor_rm', '-name', 'lpcschedd3.fnal.gov', '200.0'],
+                         ['condor_rm', '-name', 'lpcschedd6.fnal.gov', '100.1', '100.2']]
+
+
 def test_parse_ids():
     assert condor.parse_ids(None, [3, 1, 2]) == [1, 2, 3]
     assert condor.parse_ids('1,3-4', range(10)) == [1, 3, 4]

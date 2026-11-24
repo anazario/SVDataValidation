@@ -170,8 +170,8 @@ def _cmd_resubmit(a):
         return 0
     if a.refresh_code:
         print(f"code tarball repacked from the current checkout ({condor.refresh_code(a.tag)})")
-    if a.include_held and st['held']:
-        condor._run(['condor_rm', '-constraint', f'SVValTag == "{a.tag}" && JobStatus == 5'])
+    if a.include_held and st['held'] and not a.dry_run:
+        print(f"removed {condor.remove_held(a.tag)} held jobs")
     cl = condor.submit(a.tag, sorted(ids), dry_run=a.dry_run, max_materialize=a.max_mat)
     print(f"resubmitted {len(ids)} jobs" + ('' if a.dry_run else f" as cluster {cl}"))
     return 0
