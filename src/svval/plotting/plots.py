@@ -29,7 +29,8 @@ CURATED = (
        for v in _SV_CURATED]
     + [f'sv/badErr/{v}' for v in ('nTracks', 'r', 'normChi2', 'negCovDiag')]
     + [f'vtrk/{c}/{lvl}/{v}' for c, lvl in (('lep2', 'all'), ('had_id', 'base'))
-       for v in ('cosThetaCM', 'compatibility', 'shift3D', 'hasSC', 'pOverESC', 'isShared')]
+       for v in ('cosThetaCM', 'compatibility', 'shift3D', 'scMatch', 'scDR', 'energySC', 'pOverESC',
+                 'isShared')]
     + [f'track/{c}/{v}' for c in ('all', 'hyddraLike')
        for v in ('ptLog', 'eta', 'phi', 'ip2D', 'sip2D', 'ipValid', 'nValidHits', 'nLostHits', 'normChi2',
                  'relPtErr', 'highPurity')]

@@ -87,3 +87,10 @@ def test_dxysig_axes_end_at_thresholds():
             assert h.axes[0].edges[-1] == histos.dxysig_max(key.split('/')[-3]), key
     assert histos.dxysig_max('lep2_noid') == sel.LEP_DXYSIG_MAX
     assert histos.dxysig_max('trk3') == sel.HAD_DXYSIG_MAX
+
+
+def test_sc_match_needs_small_delta_r():
+    v = next(h for h in histos.VTRK_VARS if h.name == 'scMatch')
+    r = ak.Array({'VertexTrack_SCDR': [-1.0, 0.0, 0.039, 0.04, 0.3]})
+    assert ak.to_list(v.fn(r)) == [False, True, True, False, False]
+    assert not any(h.name == 'hasSC' for h in histos.VTRK_VARS)

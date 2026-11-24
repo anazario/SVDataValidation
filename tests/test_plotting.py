@@ -70,6 +70,58 @@ def test_compare_hists_flags_large_significant_differences():
     assert compare_hists(h('few', 0.0, 10), ref) is None
 
 
+class _FakeMerged:
+    """Merged stand-in: {(key, slice name): TH1}."""
+    def __init__(self, hists):
+        self.h = hists
+
+    def is_2d(self, key):
+        return False
+
+    def hist(self, key, slices):
+        out = None
+        for s in slices:
+            x = self.h.get((key, s.name))
+            if x is None:
+                continue
+            if out is None:
+                out = x.Clone(); out.SetDirectory(0)
+            else:
+                out.Add(x)
+        return out
+
+
+def _fill(name, values, nbins=4, lo=-0.5, hi=3.5):
+    x = ROOT.TH1D(name, '', nbins, lo, hi); x.SetDirectory(0)
+    for v in values:
+        x.Fill(v)
+    return x
+
+
+def test_constant_keys_and_unflagged_bs_pv():
+    from svval.plotting import compare as cmp
+    sl = [inp.parse_slice(n) for n in ('2016B_preVFP', '2016C_preVFP')]
+    g = next(x for x in inp.make_groups(sl) if x.name == 'y2016')
+    hists = {}
+    for i, s in enumerate(sl):
+        hists[('sv/lep2/all/nTracks', s.name)] = _fill(f'nt{i}', [2] * 100)                  # constant
+        hists[('sv/lep2/all/ndof', s.name)] = _fill(f'nd{i}', [9] * 100)                     # overflow only
+        hists[('event/PV_npvs', s.name)] = _fill(f'pv{i}', [i] * 100 + [3] * 100)            # very different
+        hists[('event/nSV', s.name)] = _fill(f'ns{i}', [i] * 100 + [3] * 100)                # same difference
+    hists[('sv/lep2/all/mass', '2016B_preVFP')] = _fill('m0', [2] * 100)                    # one bin here,
+    hists[('sv/lep2/all/mass', '2016C_preVFP')] = _fill('m1', [1] * 100)                    # another there
+    m = _FakeMerged(hists)
+    keys = sorted({k for k, _ in hists})
+    const = cmp.constant_keys(m, sl, keys)
+    assert const == {'sv/lep2/all/nTracks': '1.5 to 2.5', 'sv/lep2/all/ndof': 'overflow'}
+    res = {(r.unit, r.key): r for r in cmp.compare_group(m, g, [k for k in keys if k not in const])}
+    assert res[('2016B preVFP', 'event/nSV')].flagged
+    assert not res[('2016B preVFP', 'event/PV_npvs')].flagged
+    assert res[('2016B preVFP', 'event/PV_npvs')].ks_d == pytest.approx(res[('2016B preVFP', 'event/nSV')].ks_d)
+    assert not cmp.flaggable('event/BS_x') and not cmp.flaggable('event/PV_BS_dxy')
+    assert cmp.flaggable('event/nSV') and cmp.flaggable('sv/had/all/r')
+
+
 def test_brilcalc_formats_and_summary_block(tmp_path):
     from svval.plotting.lumi import read_brilcalc
     p = tmp_path / 'byls.csv'
@@ -116,7 +168,7 @@ def test_slice_lumis_scale_by_golden_ls_coverage():
 
 def test_sections_of():
     from svval.plotting.run import sections_of
-    s = sections_of(['event/nSV', 'sv/had/all/mass', 'sv/had/base/mass', 'sv/badErr/r', 'vtrk/lep2/all/hasSC',
+    s = sections_of(['event/nSV', 'sv/had/all/mass', 'sv/had/base/mass', 'sv/badErr/r', 'vtrk/lep2/all/scMatch',
                      'track/all/pt'])
     assert list(s) == ['event', 'sv_had_all', 'sv_had_base', 'sv_badErr', 'vtrk_lep2_all', 'track']
 

@@ -147,6 +147,9 @@ BADERR_2D = [SV_2D[0], SV_2D[2]]
 
 # --------------------------------------------------------------------------- SV-track variables
 
+# KUCMSDisplacedVertex_mini.hh: tracks whose assigned SC is within this dR count as electron tracks
+SC_MATCH_DR = 0.04
+
 VTRK_VARS = [
     H1('cosTheta', 'track cos#theta', 100, -1, 1, _f('VertexTrack_trackCosTheta')),
     H1('cosThetaCM', 'track cos#theta_{CM}', 100, -1, 1, _f('VertexTrack_trackCosThetaAtCM')),
@@ -154,8 +157,12 @@ VTRK_VARS = [
     H1('shiftDz', '#Deltaz after track removal [cm]', 100, 0, 2, _f('VertexTrack_shiftDzAfterTrackRemoval')),
     H1('shift3D', '#Delta3D after track removal [cm]', 100, 0, 2, _f('VertexTrack_shift3DAfterTrackRemoval')),
     H1('hasShift', 'shift defined (SV with > 2 tracks)', 2, -0.5, 1.5, lambda r: r.VertexTrack_shift3DAfterTrackRemoval >= 0),
-    H1('hasSC', 'SC matched', 2, -0.5, 1.5, lambda r: r.VertexTrack_SCDR >= 0),
-    H1('scDR', '#DeltaR(track, SC)', 100, 0, 0.2, _f('VertexTrack_SCDR')),
+    # VertexTrack_SCDR >= 0 only means the Hungarian assignment gave the track *some* SC (there is no
+    # dR cut), so its rate follows the number of stored SCs (~3x larger from 2024 on). The ntupleizer
+    # calls a track electron-like at dR < SC_MATCH_DR; that is what Vertex_passLooseElectronID uses.
+    H1('scMatch', f'SC matched (#DeltaR < {SC_MATCH_DR:g})', 2, -0.5, 1.5,
+       lambda r: (r.VertexTrack_SCDR >= 0) & (r.VertexTrack_SCDR < SC_MATCH_DR)),
+    H1('scDR', '#DeltaR(track, assigned SC)', 125, 0, 0.5, _f('VertexTrack_SCDR')),
     H1('energySC', 'E_{SC} [GeV]', 100, 0, 200, _f('VertexTrack_energySC')),
     H1('pOverESC', 'p/E_{SC}', 100, 0, 5, _f('VertexTrack_ratioPToEnergySC')),
     H1('pathLength', 'path length SV#rightarrowSC [cm]', 100, 0, 400, _f('VertexTrack_pathLength')),

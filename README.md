@@ -204,8 +204,16 @@ another. Output in `outputs/<tag>/plots/` (or `-o`):
   (never vs a total that contains it): Kolmogorov distance D and p-value, chi2/ndf and p-value of
   the normalized shapes, mean shift in RMS of the reference. A comparison is **flagged** when
   KS p < 1e-3 *and* D >= 0.02 (`--p-max`, `--d-min`): with these statistics any drift is
-  significant, so the size of the difference decides. `stats/<group>/ksmap_*`: D per unit and
-  variable for each section (event, SV category and level, SV tracks, Track_), flagged cells starred.
+  significant, so the size of the difference decides. Beamspot and PV histograms (`event/BS_*`,
+  `event/PV_*`, including `PV_npvs`) are in the CSV but never flagged and not in the KS maps:
+  beam conditions and pileup change by design. Histograms with one populated bin in the whole
+  merge (e.g. `nTracks` of 2-track SVs) are constant by construction, so they are skipped and
+  listed in `index.html`. `stats/<group>/ksmap_*`: D per unit and variable for each section
+  (event, SV category and level, SV tracks, Track_), flagged cells starred.
+* SV-track SC match: `vtrk/*/scMatch` is `0 <= VertexTrack_SCDR < 0.04`, the ntupleizer's own
+  electron-track threshold (what `Vertex_passLooseElectronID` uses). `SCDR >= 0` alone only means
+  the Hungarian assignment gave the track some SC, at any dR, so it follows the number of stored
+  SCs, which is ~3x larger from 2024 on. Merges filled before this change have the old `hasSC`.
 * `overlays/<group>/`: shape overlays of the units (unit area) with the ratio to the group total,
   and each unit's D in the legend; a curated list of ~150 histograms (`plots.CURATED`), or all
   with `--all-vars`.

@@ -76,9 +76,12 @@ def run(merged_dir: str, outdir: str, formats=('png', 'pdf'), all_vars: bool = F
         m.slices = [s for s in m.slices if s.year in set(years)]
     groups = inp.make_groups(m.slices)
     keys_1d = [k for k in m.keys() if not m.is_2d(k)]
+    constant = cmp.constant_keys(m, m.slices, keys_1d)
+    keys_1d = [k for k in keys_1d if k not in constant]
     plot_keys = keys_1d if all_vars else [k for k in plots.CURATED if k in keys_1d]
     log(f"{len(m.slices)} slices, {len(groups)} groups, {len(keys_1d)} 1D histograms "
-        f"({len(plot_keys)} plotted); merge {'complete' if m.complete else 'PARTIAL'}")
+        f"({len(plot_keys)} plotted, {len(constant)} constant ones skipped); "
+        f"merge {'complete' if m.complete else 'PARTIAL'}")
 
     os.makedirs(os.path.join(outdir, 'stats'), exist_ok=True)
     from . import lumi as L
@@ -99,7 +102,7 @@ def run(merged_dir: str, outdir: str, formats=('png', 'pdf'), all_vars: bool = F
         for k in plot_keys:
             ks = {u: by[(g.name, u, k)].ks_d for u in g.units if (g.name, u, k) in by}
             painter.overlay(g, k, ks)
-        for sec, ks_keys in sections_of(plot_keys).items():
+        for sec, ks_keys in sections_of([k for k in plot_keys if cmp.flaggable(k)]).items():
             painter.ks_map(g, results, ks_keys, sec, d_max=max(0.05, 2.5 * d_min))
 
     # ---- 2D maps per year
@@ -123,7 +126,8 @@ def run(merged_dir: str, outdir: str, formats=('png', 'pdf'), all_vars: bool = F
         for name in inp.RATES:
             painter.trend(year, ys, name, min_run_events)
 
-    path = write_index(outdir, m, groups, results, painter.written, formats, d_min, p_max, lum, lum_info)
+    path = write_index(outdir, m, groups, results, painter.written, formats, d_min, p_max, lum, lum_info,
+                       constant)
     log(f"done in {time.time() - t0:.0f}s: {sum(len(v) for v in painter.written.values())} plots, "
         f"{sum(r.flagged for r in results)} flagged comparisons of {len(results)}")
     d = os.path.abspath(outdir)
@@ -154,7 +158,8 @@ def _table(headers, rows, left=1):
     return f'<table><tr>{h}</tr>{"".join(body)}</table>'
 
 
-def write_index(outdir, m, groups, results, written, formats, d_min, p_max, lum, lum_info=None) -> str:
+def write_index(outdir, m, groups, results, written, formats, d_min, p_max, lum, lum_info=None,
+                constant: Optional[Dict[str, str]] = None) -> str:
     img = 'png' if 'png' in formats else formats[0]
     vec = 'pdf' if 'pdf' in formats else img
     e = html.escape
@@ -203,7 +208,9 @@ def write_index(outdir, m, groups, results, written, formats, d_min, p_max, lum,
     # outliers
     summ = cmp.unit_summary(results)
     out.append(f'<h2>Outlier summary</h2><p class="note">Each unit vs the rest of its group, on every 1D '
-               f'histogram. Flagged: KS p &lt; {p_max:g} and Kolmogorov distance D &ge; {d_min:g}.</p>')
+               f'histogram. Flagged: KS p &lt; {p_max:g} and Kolmogorov distance D &ge; {d_min:g}. Beamspot and '
+               f'PV histograms ({", ".join(e(x) + "*" for x in cmp.NOT_FLAGGED_PREFIXES)}) are compared but '
+               f'never flagged: their changes (beam conditions, pileup) are expected.</p>')
     for g in groups:
         rows = []
         for u in g.units:
@@ -226,6 +233,13 @@ def write_index(outdir, m, groups, results, written, formats, d_min, p_max, lum,
                + (_table(['group', 'unit', 'histogram', 'D', 'KS p', '&chi;&sup2;/ndf', 'mean shift / RMS', 'N'],
                          rows, left=3) if rows else '<p>none</p>')
                + '<p class="note">All comparisons: <a href="stats/comparisons.csv">stats/comparisons.csv</a>.</p>')
+
+    if constant:
+        rows = [('', [e(k), e(v)]) for k, v in sorted(constant.items())]
+        out.append(f'<details><summary>Constant histograms ({len(constant)}), not compared or plotted'
+                   f'</summary><p class="note">One populated bin in every slice, so a normalized overlay is 1 '
+                   f'everywhere. A change would make the histogram non-constant and bring it back.</p>'
+                   + _table(['histogram', 'single populated bin'], rows, left=2) + '</details>')
 
     # galleries
     order = ['stats', 'rates', 'trends', 'maps', 'overlays']

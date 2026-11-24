@@ -7,6 +7,13 @@ significant, so a comparison is flagged only when it is both significant and lar
     KS p-value < P_MAX   and   Kolmogorov distance D >= D_MIN
 D (the largest difference of the two normalized cumulative distributions) is the effect size;
 chi2/ndf of the normalized shapes and the mean shift (in RMS of the reference) are reported too.
+
+Beamspot and PV histograms (event/BS_*, event/PV_*, including PV_npvs) are compared and written to the
+CSV but never flagged: the beamspot moves between fills and the pileup rises over the years, so their
+differences are expected and would crowd out the reconstruction outliers.
+
+Histograms with a single populated bin in the whole merge (e.g. nTracks of 2-track SVs) are constant by
+construction; normalized, every unit is exactly 1 in that bin, so they are neither compared nor overlaid.
 """
 
 from __future__ import annotations
@@ -14,11 +21,40 @@ from __future__ import annotations
 import csv
 import math
 from dataclasses import asdict, dataclass
-from typing import Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 D_MIN = 0.02
 P_MAX = 1e-3
 MIN_ENTRIES = 50
+NOT_FLAGGED_PREFIXES = ('event/BS_', 'event/PV_')
+
+
+def flaggable(key: str) -> bool:
+    """False for histograms whose differences are expected (beamspot, PV positions and multiplicity)."""
+    return not key.startswith(NOT_FLAGGED_PREFIXES)
+
+
+def populated_bins(h) -> List[int]:
+    """Indices (with under/overflow) of the bins of a TH1 with non-zero content."""
+    return [i for i in range(h.GetNbinsX() + 2) if h.GetBinContent(i) != 0]
+
+
+def constant_keys(merged, slices, keys: Iterable[str]) -> Dict[str, str]:
+    """
+    {key: description of the single value} for the 1D histograms whose sum over all slices has one
+    populated bin. Such a histogram has the same single bin in every unit.
+    """
+    out = {}
+    for key in keys:
+        h = merged.hist(key, slices)
+        if h is None:
+            continue
+        b = populated_bins(h)
+        if len(b) == 1:
+            i, ax = b[0], h.GetXaxis()
+            out[key] = ('underflow' if i == 0 else 'overflow' if i == ax.GetNbins() + 1
+                        else f"{ax.GetBinLowEdge(i):g} to {ax.GetBinUpEdge(i):g}")
+    return out
 
 
 @dataclass
@@ -68,6 +104,7 @@ def compare_group(merged, group, keys: Iterable[str], d_min: float = D_MIN, p_ma
                 ref.Add(x)
             r = compare_hists(h, ref, d_min, p_max)
             if r:
+                r['flagged'] = r['flagged'] and flaggable(key)
                 out.append(Result(group=group.name, unit=unit, key=key, **r))
         if log and (i + 1) % 200 == 0:
             log(f"    {group.name}: {i + 1}/{len(keys)} histograms compared")
