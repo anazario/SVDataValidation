@@ -147,3 +147,14 @@ def test_hem_veto():
     assert not sel.hem_veto(_ev_pho([(31, *hem, 0, 1)]))[0]                 # pixel seed
     assert not sel.hem_veto(_ev_pho([(25, *hem, 0, 0)]))[0]                 # photon needs > 30
     assert not sel.hem_veto(_ev_pho([], jet=[(50, 1.0, -1.0)]))[0]          # wrong eta
+
+
+def test_photon_excluded_scales_with_oot_photons_only():
+    # many GED photons and no OOT photon (the broken 2018 files): nothing excluded, no N^2 pairs
+    n = 900
+    ev = _ev_pho([(40, 0.01 * i, 0.0, 0, 0) for i in range(n)])
+    assert not ak.any(sel.photon_excluded(ev))
+    # same answer as the all-pairs definition on a mixed event
+    ev = _ev_pho([(50, 0.0, 0.0, 1, 0), (40, 0.1, 0.0, 0, 0), (30, 1.0, 2.0, 0, 0), (20, 1.1, 2.0, 1, 0),
+                  (25, 2.5, -3.1, 0, 0), (22, 2.5, 3.1, 1, 0)])               # last pair across phi = +-pi
+    assert sel.photon_excluded(ev)[0].tolist() == [False, True, True, False, True, False]

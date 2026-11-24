@@ -29,14 +29,13 @@ from . import plots
 
 # ----------------------------------------------------------------------------- luminosity
 
-def slice_luminosity(merged: inp.Merged, lumi_csv: Optional[Sequence[str]] = None):
+def slice_luminosity(merged: inp.Merged, table):
     """
-    ({slice: fb^-1}, {slice: info}) from brilcalc CSVs (--lumi-csv, else configs/lumi_brilcalc/*.csv),
-    or ({}, {}) if there are none. A slice with a run that has no value gets no luminosity.
+    ({slice: fb^-1}, {slice: info}) from the brilcalc table, or ({}, {}) if it is empty.
+    A slice with a run that has no value gets no luminosity.
     """
     from . import lumi as L
     from ..lumimask import LumiMask
-    table = L.read_brilcalc(lumi_csv) if lumi_csv else L.load_default()
     if not table:
         return {}, {}
     vals, info = L.slice_lumis(merged.lumis, table, LumiMask.from_dir(), L.golden_ls_per_run())
@@ -46,23 +45,14 @@ def slice_luminosity(merged: inp.Merged, lumi_csv: Optional[Sequence[str]] = Non
 
 def unit_lumis(group: inp.Group, merged: inp.Merged, slice_lumi: Optional[Dict[str, float]]):
     """
-    Recorded luminosity (fb^-1) of each unit of a group, or None:
-      - with brilcalc values (configs/lumi_brilcalc or --lumi-csv): any group, summed over the unit's
-        slices (units with a slice lacking a value are left out)
-      - otherwise, groups of whole years (Run 2 / Run 3) from configs/lumi_fb.yaml, and only if every
-        catalogued file of each of those years is in the merge (checks.json file_coverage): a test
-        tag or a subset would divide part of a year's events by the whole year's luminosity.
-        Slices within a year have no luminosity without brilcalc.
+    Recorded luminosity (fb^-1) of each unit of a group, summed over its slices (the brilcalc values
+    of the lumi sections present in the merge), or None without brilcalc values. Units with a slice
+    lacking a value are left out.
     """
-    if slice_lumi:
-        return {u: sum(slice_lumi[s.name] for s in sl) for u, sl in group.units.items()
-                if all(s.name in slice_lumi for s in sl)} or None
-    if not group.name.startswith('run') or not {int(u) for u in group.units} <= merged.full_years:
+    if not slice_lumi:
         return None
-    from .style import LUMI_FB
-    if not all(int(u) in LUMI_FB for u in group.units):
-        return None
-    return {u: LUMI_FB[int(u)] for u in group.units}
+    return {u: sum(slice_lumi[s.name] for s in sl) for u, sl in group.units.items()
+            if all(s.name in slice_lumi for s in sl)} or None
 
 
 # ----------------------------------------------------------------------------- driver
@@ -91,7 +81,9 @@ def run(merged_dir: str, outdir: str, formats=('png', 'pdf'), all_vars: bool = F
         f"({len(plot_keys)} plotted); merge {'complete' if m.complete else 'PARTIAL'}")
 
     os.makedirs(os.path.join(outdir, 'stats'), exist_ok=True)
-    painter = plots.Painter(m, outdir, formats)
+    from . import lumi as L
+    table = L.read_brilcalc(lumi_csv) if lumi_csv else L.load_default()
+    painter = plots.Painter(m, outdir, formats, year_lumi=table.by_year)
 
     # ---- statistics on every 1D histogram
     results: List[cmp.Result] = []
@@ -117,7 +109,7 @@ def run(merged_dir: str, outdir: str, formats=('png', 'pdf'), all_vars: bool = F
             painter.map2d(k, ys, str(year), f"maps/{year}")
 
     # ---- rates and trends
-    lum, lum_info = slice_luminosity(m, lumi_csv)
+    lum, lum_info = slice_luminosity(m, table)
     if lum_info:
         log(f"  luminosity from brilcalc for {len(lum)} of {len(m.slices)} slices")
     for g in groups:

@@ -168,6 +168,9 @@ From the LPC working area, with a grid proxy (`voms-proxy-init -voms cms -valid 
   A job is done when its `.json` is on EOS (copied last). `status` combines that with condor_q
   (jobs carry the `SVValTag` / `SVValJob` ClassAds); `resubmit` sends every job neither done nor
   queued and shows the last stderr lines of failures.
+* Jobs run the code packed into `condor/<tag>/svval_code.tgz` at the first submission. After fixing
+  a bug, `resubmit --refresh-code` repacks it from the current checkout first; every packing is
+  recorded with its git commit in `tag.json` (`code`), so it stays known which code made which job.
 * `--max-mat N` (submit and resubmit) sets condor `max_materialize`: at most N jobs of the round in
   the queue at once. Jobs not materialized yet are not in condor_q; `status` reports them as
   "waiting to materialize" while the cluster's factory is alive, so `resubmit` never sends them twice.
@@ -203,21 +206,23 @@ another. Output in `outputs/<tag>/plots/` (or `-o`):
 * `index.html`: merge checks, cutflow per slice, outlier summary per unit, the 60 largest flagged
   differences (linked to their overlays) and galleries of everything.
 
-Luminosity: the per-year certified luminosities are in `configs/lumi_fb.yaml` (fb^-1, as in
-LLPStandardPlots). `merge` records in `checks.json` the fraction of each year's catalogued ntuple
-files that it contains (`file_coverage`). The luminosity label, and the per-fb^-1 rates of the
-year-vs-year comparisons, are only drawn for years with full coverage: a test tag (`--max-files`),
-a subset (`--ids`) or a partial merge would otherwise divide part of a year's events by the whole
-year's luminosity.
+Luminosity: everything comes from brilcalc, computed **once** and committed in
+`configs/lumi_brilcalc/lumi_<year>.csv` (recorded luminosity of every golden run).
+`tools/make_lumi_csv.sh` makes them (run on lxplus from the repository top; brilcalc comes from the
+BRIL container on cvmfs, nothing to install; normtag_PHYSICS up to 2024, normtag_BRIL from 2025).
+Rerun it when a golden JSON changes or a newer normtag covers the recent runs.
 
-Per-slice luminosity (per-fb^-1 rates of eras within a year) comes from brilcalc, computed **once**
-and committed: `tools/make_lumi_csv.sh` (run on lxplus; brilcalc comes from the BRIL container on
-cvmfs, nothing to install) writes the recorded luminosity of every golden run to `configs/lumi_brilcalc/lumi_<year>.csv`
-and prints each year's total next to `configs/lumi_fb.yaml`. When these files exist, `svval plot`
-uses them for every group (no flag; `--lumi-csv` overrides them, per-run or per-LS CSVs). Each run's
-luminosity is scaled by the fraction of its golden lumi sections present in the merge, so missing
-jobs or CRAB failures do not bias the rates; the cutflow table shows L, that coverage, and any run
-without a value (its slice then gets no per-fb^-1 point). Rerun the script when a golden JSON changes.
+* Plot headers: the sum of the CSV year totals of the years shown, rounded to the nearest integer
+  (e.g. 96 fb^-1 for 2016 + 2018). Only drawn when every catalogued ntuple file of those years is in
+  the merge (`checks.json` `file_coverage`); a test tag, a subset or a partial merge shows only the
+  energy.
+* Per-fb^-1 rates (slices and years): per run, recorded / nls of the brilcalc row (the average per
+  lumi section) times the golden lumi sections present in the merge. Missing jobs or CRAB failures
+  therefore do not bias the rates, and neither do runs where the normtag covers fewer lumi sections
+  than the golden JSON (brilcalc reports only the overlap; these are listed in the index).
+* `index.html` cutflow: L per slice, golden-LS coverage, runs without a value (their slice gets no
+  per-fb^-1 point), runs whose L was extrapolated. `--lumi-csv` replaces the committed CSVs
+  (per-run or per-LS brilcalc output).
 
 ## Tests
 

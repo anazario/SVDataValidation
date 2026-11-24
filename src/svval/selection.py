@@ -81,12 +81,13 @@ def _dphi(a, b):
 
 def photon_excluded(ev) -> ak.Array:
     """The skimmer's correctedPhotonExcluded: a GED photon within dR < 0.3 of any OOT photon."""
+    # pairs of every photon with the OOT photons only: N x N_OOT, not N^2 (some broken 2018 files
+    # have ~860 photons per event and no OOT photon; all-pairs exhausted the 2 GB of a job)
     ged = ~ev.Photon_isOot
-    pairs = ak.cartesian({'a': ak.zip({'eta': ev.Photon_eta, 'phi': ev.Photon_phi}),
-                          'b': ak.zip({'eta': ev.Photon_eta, 'phi': ev.Photon_phi, 'oot': ev.Photon_isOot})},
-                         nested=True)
+    pho = ak.zip({'eta': ev.Photon_eta, 'phi': ev.Photon_phi})
+    pairs = ak.cartesian({'a': pho, 'b': pho[ev.Photon_isOot]}, nested=True)
     dr = np.hypot(pairs.a.eta - pairs.b.eta, _dphi(pairs.a.phi, pairs.b.phi))
-    near_oot = ak.any((dr < 0.3) & pairs.b.oot, axis=2)
+    near_oot = ak.any(dr < 0.3, axis=2)
     return ged & near_oot
 
 

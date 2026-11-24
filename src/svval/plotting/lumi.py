@@ -20,6 +20,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, Optional, Sequence, Tuple
@@ -36,6 +37,7 @@ class LumiTable:
     by_run: Dict[int, float] = field(default_factory=dict)          # fb^-1
     nls: Dict[int, int] = field(default_factory=dict)               # lumi sections with a value, per run
     by_ls: Dict[Tuple[int, int], float] = field(default_factory=dict)
+    by_year: Dict[int, float] = field(default_factory=dict)         # total of each lumi_<year>.csv
     files: list = field(default_factory=list)
 
     def __bool__(self):
@@ -46,6 +48,8 @@ def read_brilcalc(paths: Iterable[str]) -> LumiTable:
     out = LumiTable()
     for path in paths:
         out.files.append(os.path.basename(path))
+        m = re.search(r'(20\d\d)', os.path.basename(path))
+        year = int(m.group(1)) if m else None
         cols, scale, i_rec, byls = None, None, None, False
         with open(path) as f:
             for line in f:
@@ -72,6 +76,8 @@ def read_brilcalc(paths: Iterable[str]) -> LumiTable:
                 p = s.split(',')
                 run = int(p[0].split(':')[0])
                 val = float(p[i_rec]) * scale
+                if year is not None:
+                    out.by_year[year] = out.by_year.get(year, 0.0) + val
                 if byls:
                     out.by_ls[(run, int(p[1].split(':')[0]))] = val
                 else:

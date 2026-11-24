@@ -68,6 +68,12 @@ def test_prepare_and_dry_run(tmp_path, joblist):
     condor.prepare('t1', joblist, [1], max_files=2, base=base)                   # extending is fine
     assert sorted(json.load(open(os.path.join(d, 'tag.json')))['jobs']) == ['0', '1', '2']
 
+    # refresh: tarball repacked, code version appended
+    before = len(json.load(open(os.path.join(d, 'tag.json')))['code'])
+    v = condor.refresh_code('t1', base)
+    meta = json.load(open(os.path.join(d, 'tag.json')))
+    assert len(meta['code']) == before + 1 and meta['code'][-1]['version'] == v and v
+
 
 def test_merge_flags_slices_without_golden_json():
     from svval.merge import no_golden_json_slices

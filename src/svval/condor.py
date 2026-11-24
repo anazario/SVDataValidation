@@ -103,6 +103,33 @@ def parse_ids(spec: Optional[str], all_ids: Iterable[int]) -> List[int]:
     return sorted(out)
 
 
+def code_version() -> str:
+    """git commit of the code being packed (+ '-dirty' with uncommitted changes), or 'unknown'."""
+    try:
+        h = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], cwd=REPO, stdout=subprocess.PIPE,
+                           stderr=subprocess.DEVNULL, universal_newlines=True).stdout.strip()
+        dirty = subprocess.run(['git', 'status', '--porcelain', '--untracked-files=no'], cwd=REPO,
+                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                               universal_newlines=True).stdout.strip()
+        return (h + ('-dirty' if dirty else '')) if h else 'unknown'
+    except OSError:
+        return 'unknown'
+
+
+def refresh_code(tag: str, base: Optional[str] = None) -> str:
+    """Repack svval_code.tgz of a tag from the current checkout (for a resubmission after a fix)."""
+    d = tag_dir(tag, base)
+    meta_path = os.path.join(d, 'tag.json')
+    with open(meta_path) as f:
+        meta = json.load(f)
+    _code_tarball(os.path.join(d, 'svval_code.tgz'))
+    v = code_version()
+    meta.setdefault('code', []).append({'version': v, 'time': time.strftime('%Y-%m-%d %H:%M:%S')})
+    with open(meta_path, 'w') as f:
+        json.dump(meta, f, indent=1)
+    return v
+
+
 def _code_tarball(path: str):
     with tarfile.open(path, 'w:gz') as tar:
         for sub in ('src/svval', 'configs'):
@@ -143,6 +170,7 @@ def prepare(tag: str, jobs_json: str, ids: List[int], max_files: Optional[int] =
         meta['jobs'][str(i)] = {'year': j['year'], 'era': j['era'], 'period': j['period'],
                                 'n_files': len(j['files']), 'bytes': j['bytes']}
     _code_tarball(os.path.join(d, 'svval_code.tgz'))
+    meta.setdefault('code', []).append({'version': code_version(), 'time': time.strftime('%Y-%m-%d %H:%M:%S')})
     with open(os.path.join(d, 'run_job.sh'), 'w') as f:
         f.write(WRAPPER.replace('@SCRAM_ARCH@', SCRAM_ARCH).replace('@CMSSW@', CMSSW).replace('@XRD@', XRD))
     os.chmod(os.path.join(d, 'run_job.sh'), 0o755)

@@ -7,7 +7,7 @@ python has no cmsstyle), the CMS / Preliminary / luminosity labels, the colour p
 
 from __future__ import annotations
 
-import os
+import math
 from typing import List, Optional
 
 import ROOT
@@ -18,18 +18,12 @@ EXTRA_COLORS = [ROOT.kBlue - 4, ROOT.kGreen - 3, ROOT.kPink - 8, ROOT.kOrange + 
                 ROOT.kAzure + 2, ROOT.kGray + 2, ROOT.kBlack]
 MARKERS = [20, 21, 22, 23, 33, 34, 29, 47, 24, 25, 26, 32]
 
-LUMI_FILE = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'configs', 'lumi_fb.yaml')
-
-
-def load_lumi_fb(path: str = LUMI_FILE) -> dict:
-    """Integrated luminosity (fb^-1) per year from configs/lumi_fb.yaml."""
-    import yaml
-    with open(path) as f:
-        return {int(k): float(v) for k, v in yaml.safe_load(f).items()}
-
-
-LUMI_FB = load_lumi_fb()
 RUN2_YEARS = (2016, 2017, 2018)
+
+
+def lumi_label(fb: float) -> str:
+    """Header luminosity: rounded to the nearest integer (half up)."""
+    return str(int(math.floor(fb + 0.5)))
 
 
 def energy_of(years) -> str:
@@ -116,7 +110,7 @@ class Style:
         l = ROOT.TLatex(); l.SetNDC(); l.SetTextFont(42); l.SetTextSize(self.lumi_text_size * size_mult)
         l.SetTextAlign(31)
         if lumi_fb:
-            txt = f"{lumi_fb:.1f} fb^{{-1}} ({energy})"
+            txt = f"{lumi_label(lumi_fb)} fb^{{-1}} ({energy})"
         else:
             txt = f"({energy})"
         l.DrawLatex(lumi_x, cms_y, txt); objs.append(l)

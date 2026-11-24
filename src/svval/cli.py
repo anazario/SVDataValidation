@@ -168,6 +168,8 @@ def _cmd_resubmit(a):
         print("nothing to resubmit")
         _print_status(st, False)
         return 0
+    if a.refresh_code:
+        print(f"code tarball repacked from the current checkout ({condor.refresh_code(a.tag)})")
     if a.include_held and st['held']:
         condor._run(['condor_rm', '-constraint', f'SVValTag == "{a.tag}" && JobStatus == 5'])
     cl = condor.submit(a.tag, sorted(ids), dry_run=a.dry_run, max_materialize=a.max_mat)
@@ -260,6 +262,9 @@ def main(argv=None):
     rs.add_argument('--include-held', action='store_true', help='also remove and resubmit held jobs')
     rs.add_argument('--dry-run', action='store_true')
     rs.add_argument('--max-mat', type=int, metavar='N', help='as for submit')
+    rs.add_argument('--refresh-code', action='store_true',
+                    help='repack the code tarball from the current checkout first (e.g. after a fix); '
+                         'by default jobs run the code packed at the first submission')
     rs.set_defaults(fn=_cmd_resubmit)
 
     mg = sub.add_parser('merge', help='hadd job outputs, merge lumi tables, duplicate-lumi and blinding checks')

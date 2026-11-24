@@ -59,8 +59,7 @@ for year in ${YEARS:-2016 2017 2018 2022 2023 2024 2025 2026}; do
   fi
   # summary block: '#nfill,nrun,...,totrecorded(/fb)' then '#<values>' (brilcalc prefixes it with '#')
   total=$(awk -F, '/^#nfill/{getline; print $NF; exit}' $csv)
-  ref=$(awk -v y=$year -F': *' '$1==y{print $2}' configs/lumi_fb.yaml)
-  echo "   recorded ${total} fb^-1   (configs/lumi_fb.yaml: ${ref})"
+  echo "   recorded ${total} fb^-1"
 done
 if [ -n "$failed" ]; then echo "FAILED years:$failed  (fix and rerun with YEARS=\"...\")"; exit 1; fi
 echo "done: commit $OUT/"

@@ -88,6 +88,10 @@ def test_brilcalc_formats_and_summary_block(tmp_path):
     t = read_brilcalc([str(q)])
     assert t.by_run == {355100: pytest.approx(0.2), 355101: pytest.approx(0.05)}             # /pb -> /fb; no summary row
     assert t.nls == {355100: 100, 355101: 50}
+    assert t.by_year == {}                                            # file name has no year
+    q2 = tmp_path / 'lumi_2022.csv'
+    q2.write_text(q.read_text())
+    assert read_brilcalc([str(q2)]).by_year == {2022: pytest.approx(0.25)}
 
 
 def test_slice_lumis_scale_by_golden_ls_coverage():
@@ -119,18 +123,19 @@ def test_sections_of():
 
 def test_unit_lumis():
     from svval.plotting.run import unit_lumis
-    from svval.plotting.style import LUMI_FB
-    assert LUMI_FB[2024] == pytest.approx(108.9527975) and LUMI_FB[2016] == pytest.approx(36.31375334)
     sl = [inp.parse_slice(n) for n in ('2016B_preVFP', '2016F_postVFP', '2017C', '2018A_preHEM')]
     groups = {g.name: g for g in inp.make_groups(sl)}
+    per_slice = {'2016B_preVFP': 10.0, '2016F_postVFP': 5.0, '2017C': 2.0}
+    assert unit_lumis(groups['y2016'], None, per_slice) == {'2016B preVFP': 10.0, '2016F postVFP': 5.0}
+    assert unit_lumis(groups['run2'], None, per_slice) == {'2016': 15.0, '2017': 2.0}   # 2018: no value
+    assert unit_lumis(groups['run2'], None, {}) is None
 
-    class M:
-        full_years = {2016, 2017, 2018}
-    assert unit_lumis(groups['run2'], M, None) == {'2016': pytest.approx(36.31375334),
-                                                   '2017': pytest.approx(41.47984914),
-                                                   '2018': pytest.approx(59.8324224)}
-    assert unit_lumis(groups['y2016'], M, None) is None              # slices: needs brilcalc
-    M.full_years = {2016, 2018}
-    assert unit_lumis(groups['run2'], M, None) is None               # 2017 not fully merged
-    per_slice = {'2016B_preVFP': 10.0, '2016F_postVFP': 5.0}
-    assert unit_lumis(groups['y2016'], M, per_slice) == {'2016B preVFP': 10.0, '2016F postVFP': 5.0}
+
+def test_header_luminosity_from_csv_totals():
+    from svval.plotting.plots import _lumi_for
+    from svval.plotting.style import lumi_label
+    year_lumi = {2016: 36.313753344, 2018: 59.561262519}
+    assert lumi_label(_lumi_for([2016, 2018], {2016, 2018}, year_lumi)) == '96'
+    assert lumi_label(36.5) == '37' and lumi_label(36.49) == '36'
+    assert _lumi_for([2016, 2018], {2016}, year_lumi) is None         # 2018 not fully merged
+    assert _lumi_for([2017], {2017}, year_lumi) is None               # no CSV for 2017

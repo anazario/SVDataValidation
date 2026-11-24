@@ -14,7 +14,7 @@ import numpy as np
 import ROOT
 
 from . import inputs as inp
-from .style import LUMI_FB, Style, energy_of
+from .style import Style, energy_of
 
 # --------------------------------------------------------------------------- curated variables
 
@@ -62,19 +62,19 @@ def _safe(name: str) -> str:
     return name.replace('/', '__').replace(' ', '_')
 
 
-def _lumi_for(years: Sequence[int], full_years) -> Optional[float]:
-    """Header luminosity: only when every year shown is fully merged (else it would mislabel)."""
-    if not set(years) <= set(full_years):
+def _lumi_for(years: Sequence[int], full_years, year_lumi: Dict[int, float]) -> Optional[float]:
+    """Header luminosity (brilcalc year totals): only when every year shown is fully merged, else
+    it would label part of the data with the whole years' luminosity."""
+    if not set(years) <= set(full_years) or not all(y in year_lumi for y in years):
         return None
-    try:
-        return sum(LUMI_FB[y] for y in years)
-    except KeyError:
-        return None
+    return sum(year_lumi[y] for y in years)
 
 
 class Painter:
-    def __init__(self, merged: inp.Merged, outdir: str, formats=('png', 'pdf')):
+    def __init__(self, merged: inp.Merged, outdir: str, formats=('png', 'pdf'),
+                 year_lumi: Optional[Dict[int, float]] = None):
         self.m = merged
+        self.year_lumi = year_lumi or {}
         self.out = outdir
         self.formats = formats
         self.style = Style()
@@ -89,7 +89,7 @@ class Painter:
 
     def _header(self, years, size_mult=1.0, cms_y=0.955, lumi_x=0.9, prelim_x=0.248, cms_x=0.16):
         return self.style.cms_labels(cms_x=cms_x, cms_y=cms_y, prelim_x=prelim_x, lumi_x=lumi_x,
-                                     lumi_fb=_lumi_for(years, self.m.full_years), energy=energy_of(years),
+                                     lumi_fb=_lumi_for(years, self.m.full_years, self.year_lumi), energy=energy_of(years),
                                      size_mult=size_mult)
 
     # ------------------------------------------------------------------ shape overlays
@@ -308,7 +308,7 @@ class Painter:
                 m = ROOT.TMarker(keys.index(k) + 0.5, units.index(u) + 0.5, 29)
                 m.SetMarkerColor(ROOT.kRed); m.SetMarkerSize(1.0); m.Draw(); marks.append(m)
         hdr = self.style.cms_labels(cms_x=c.GetLeftMargin(), cms_y=0.94, prelim_x=c.GetLeftMargin() + 0.075 * 900 / w + 0.02,
-                                    lumi_x=1 - c.GetRightMargin(), lumi_fb=_lumi_for(group.years, self.m.full_years),
+                                    lumi_x=1 - c.GetRightMargin(), lumi_fb=_lumi_for(group.years, self.m.full_years, self.year_lumi),
                                     energy=energy_of(group.years), size_mult=0.8)
         lab = self.style.label(f"{group.title}; {key_label(keys[0])}" + (f" [{prefix.rstrip('/')}]" if prefix else '')
                                + "; red stars: flagged", c.GetLeftMargin(), 0.885, size=0.03)
