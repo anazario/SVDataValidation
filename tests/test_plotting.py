@@ -70,16 +70,39 @@ def test_compare_hists_flags_large_significant_differences():
     assert compare_hists(h('few', 0.0, 10), ref) is None
 
 
-def test_brilcalc_csv_and_lumi_per_slice(tmp_path):
-    from svval.plotting.run import read_brilcalc_byls
-    p = tmp_path / 'lumi.csv'
+def test_brilcalc_formats_and_summary_block(tmp_path):
+    from svval.plotting.lumi import read_brilcalc
+    p = tmp_path / 'byls.csv'
     p.write_text("#Data tag : 24v1 , Norm tag: None\n"
                  "#run:fill,ls,time,beamstatus,E(GeV),delivered(/ub),recorded(/ub),avgpu,source\n"
                  "355100:7983,1:1,07/04/22 15:22:19,STABLE BEAMS,6800,2000000.0,1000000.0,10.0,HFOC\n"
                  "355100:7983,2:2,07/04/22 15:22:42,STABLE BEAMS,6800,2000000.0,3000000.0,10.0,HFOC\n"
-                 "#Summary:\n")
-    lum = read_brilcalc_byls([str(p)])
-    assert lum == {(355100, 1): pytest.approx(1e-3), (355100, 2): pytest.approx(3e-3)}  # /ub -> /fb
+                 "#Summary:\n#nfill,nrun,nls,ncms,totdelivered(/ub),totrecorded(/ub)\n1,1,2,2,4000000.0,4000000.0\n")
+    t = read_brilcalc([str(p)])
+    assert t.by_ls == {(355100, 1): pytest.approx(1e-3), (355100, 2): pytest.approx(3e-3)}  # /ub -> /fb
+    assert t.by_run == {}
+    q = tmp_path / 'byrun.csv'
+    q.write_text("#Data tag : 24v1 , Norm tag: x\n#run:fill,time,nls,ncms,delivered(/pb),recorded(/pb)\n"
+                 "355100:7983,07/04/22 15:22:19,100,100,250.0,200.0\n355101:7983,07/04/22 17:00:00,50,50,60.0,50.0\n"
+                 "#Summary:\n#nfill,nrun,nls,ncms,totdelivered(/pb),totrecorded(/pb)\n1,2,150,150,310.0,250.0\n")
+    t = read_brilcalc([str(q)])
+    assert t.by_run == {355100: pytest.approx(0.2), 355101: pytest.approx(0.05)}             # /pb -> /fb; no summary row
+
+
+def test_slice_lumis_scale_by_golden_ls_coverage():
+    from svval.plotting.lumi import LumiTable, slice_lumis
+    rows = [('2022C', 1, 1), ('2022C', 1, 2), ('2022C', 1, 2),        # LS 2 read twice (JetMET0 and 1)
+            ('2022C', 1, 9),                                          # not golden
+            ('2022D', 2, 1), ('2022D', 3, 1)]
+    t = np.array(rows, dtype=[('slice', 'U24'), ('run', np.uint32), ('lumi', np.uint32)])
+    golden = lambda r, l: ~((np.asarray(r) == 1) & (np.asarray(l) == 9))
+    counts = {1: 4, 2: 1, 3: 2}                                       # golden LS per run
+    vals, info = slice_lumis(t, LumiTable(by_run={1: 8.0, 2: 1.0}), golden, counts)
+    assert vals['2022C'] == pytest.approx(8.0 * 2 / 4)                # 2 of 4 golden LS present
+    assert info['2022C'] == {'ls_present': 2, 'ls_golden': 4, 'runs_without_lumi': []}
+    assert info['2022D']['runs_without_lumi'] == [3]
+    vals, _ = slice_lumis(t, LumiTable(by_ls={(1, 1): 0.5, (1, 2): 0.25, (2, 1): 1.0, (3, 1): 2.0}), golden, counts)
+    assert vals == {'2022C': pytest.approx(0.75), '2022D': pytest.approx(3.0)}
 
 
 def test_sections_of():

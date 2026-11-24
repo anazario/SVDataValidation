@@ -29,61 +29,34 @@ from . import plots
 
 # ----------------------------------------------------------------------------- luminosity
 
-def read_brilcalc_byls(paths: Sequence[str]) -> Dict[tuple, float]:
+def slice_luminosity(merged: inp.Merged, lumi_csv: Optional[Sequence[str]] = None):
     """
-    brilcalc lumi --byls --output-style csv  ->  {(run, ls): recorded lumi in fb^-1} (any unit in the header).
-    Rows look like '355100:7983,1:1,...,delivered,recorded,...'; the units come from the header line.
+    ({slice: fb^-1}, {slice: info}) from brilcalc CSVs (--lumi-csv, else configs/lumi_brilcalc/*.csv),
+    or ({}, {}) if there are none. A slice with a run that has no value gets no luminosity.
     """
-    out = {}
-    for path in paths:
-        with open(path) as f:
-            cols, scale = None, 1.0
-            for line in f:
-                if line.startswith('#'):
-                    h = line.lstrip('#').strip().split(',')
-                    if h and h[0].startswith('run'):
-                        cols = h
-                        rec = next(c for c in h if c.startswith('recorded'))
-                        unit = rec[rec.find('(') + 1:rec.find(')')] if '(' in rec else '/ub'
-                        scale = {'/fb': 1.0, '/pb': 1e-3, '/nb': 1e-6, '/ub': 1e-9}.get(unit, None)   # -> fb^-1
-                        if scale is None:
-                            raise ValueError(f"{path}: unknown luminosity unit '{unit}'")
-                        i_rec = h.index(rec)
-                    continue
-                if cols is None or not line.strip():
-                    continue
-                p = line.strip().split(',')
-                run = int(p[0].split(':')[0])
-                ls = int(p[1].split(':')[0])
-                out[(run, ls)] = float(p[i_rec]) * scale
-    return out
-
-
-def lumi_by_slice(merged: inp.Merged, lumi: Dict[tuple, float]) -> Dict[str, float]:
-    """Recorded luminosity per slice: each (run, ls) counted once, whatever the PD or file."""
-    t = merged.lumis
-    out = defaultdict(float)
-    seen = set()
-    for s, r, l in zip(t['slice'], t['run'], t['lumi']):
-        k = (int(r), int(l))
-        if (s, k) in seen:
-            continue
-        seen.add((s, k))
-        out[str(s)] += lumi.get(k, 0.0)
-    return dict(out)
+    from . import lumi as L
+    from ..lumimask import LumiMask
+    table = L.read_brilcalc(lumi_csv) if lumi_csv else L.load_default()
+    if not table:
+        return {}, {}
+    vals, info = L.slice_lumis(merged.lumis, table, LumiMask.from_dir(), L.golden_ls_per_run())
+    ok = {s: v for s, v in vals.items() if v > 0 and not info[s]['runs_without_lumi']}
+    return ok, info
 
 
 def unit_lumis(group: inp.Group, merged: inp.Merged, slice_lumi: Optional[Dict[str, float]]):
     """
     Recorded luminosity (fb^-1) of each unit of a group, or None:
-      - with brilcalc per-LS values (--lumi-csv): any group, summed over the unit's slices
+      - with brilcalc values (configs/lumi_brilcalc or --lumi-csv): any group, summed over the unit's
+        slices (units with a slice lacking a value are left out)
       - otherwise, groups of whole years (Run 2 / Run 3) from configs/lumi_fb.yaml, and only if every
         catalogued file of each of those years is in the merge (checks.json file_coverage): a test
         tag or a subset would divide part of a year's events by the whole year's luminosity.
         Slices within a year have no luminosity without brilcalc.
     """
     if slice_lumi:
-        return {u: sum(slice_lumi.get(s.name, 0.0) for s in sl) for u, sl in group.units.items()}
+        return {u: sum(slice_lumi[s.name] for s in sl) for u, sl in group.units.items()
+                if all(s.name in slice_lumi for s in sl)} or None
     if not group.name.startswith('run') or not {int(u) for u in group.units} <= merged.full_years:
         return None
     from .style import LUMI_FB
@@ -144,9 +117,9 @@ def run(merged_dir: str, outdir: str, formats=('png', 'pdf'), all_vars: bool = F
             painter.map2d(k, ys, str(year), f"maps/{year}")
 
     # ---- rates and trends
-    lum = None
-    if lumi_csv:
-        lum = lumi_by_slice(m, read_brilcalc_byls(lumi_csv))
+    lum, lum_info = slice_luminosity(m, lumi_csv)
+    if lum_info:
+        log(f"  luminosity from brilcalc for {len(lum)} of {len(m.slices)} slices")
     for g in groups:
         per_fb = unit_lumis(g, m, lum)
         for name in inp.RATES:
@@ -158,7 +131,7 @@ def run(merged_dir: str, outdir: str, formats=('png', 'pdf'), all_vars: bool = F
         for name in inp.RATES:
             painter.trend(year, ys, name, min_run_events)
 
-    path = write_index(outdir, m, groups, results, painter.written, formats, d_min, p_max, lum)
+    path = write_index(outdir, m, groups, results, painter.written, formats, d_min, p_max, lum, lum_info)
     log(f"done in {time.time() - t0:.0f}s: {sum(len(v) for v in painter.written.values())} plots, "
         f"{sum(r.flagged for r in results)} flagged comparisons of {len(results)}; {path}")
     return path
@@ -185,7 +158,7 @@ def _table(headers, rows, left=1):
     return f'<table><tr>{h}</tr>{"".join(body)}</table>'
 
 
-def write_index(outdir, m, groups, results, written, formats, d_min, p_max, lum) -> str:
+def write_index(outdir, m, groups, results, written, formats, d_min, p_max, lum, lum_info=None) -> str:
     img = 'png' if 'png' in formats else formats[0]
     vec = 'pdf' if 'pdf' in formats else img
     e = html.escape

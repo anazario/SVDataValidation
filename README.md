@@ -196,8 +196,7 @@ another. Output in `outputs/<tag>/plots/` (or `-o`):
   with `--all-vars`.
 * `rates/<group>/`: per unit, SVs per event by class (mu mu, ee, mu+e, no-ID, 3-track, hadronic
   with/without ID), shared tracks per SV, fractions of SVs with invalid sigma_dxy or negative
-  covariance, fraction of fake-PV events, mean N_PV. Per fb^-1 for whole years (see below); with `--lumi-csv` (brilcalc
-  `lumi --byls --output-style csv`, any unit) also per fb^-1 (each (run, ls) counted once).
+  covariance, fraction of fake-PV events, mean N_PV; also per fb^-1 (see Luminosity below).
 * `trends/<year>/`: the same quantities run by run (runs with >= 100 selected events), with the
   slice boundaries.
 * `maps/<year>/`: SV x-y (full and inner 10 cm) and r-z maps, also for the invalid-error SVs.
@@ -209,8 +208,16 @@ LLPStandardPlots). `merge` records in `checks.json` the fraction of each year's 
 files that it contains (`file_coverage`). The luminosity label, and the per-fb^-1 rates of the
 year-vs-year comparisons, are only drawn for years with full coverage: a test tag (`--max-files`),
 a subset (`--ids`) or a partial merge would otherwise divide part of a year's events by the whole
-year's luminosity. Slices within a year get per-fb^-1 rates only from brilcalc per-LS values
-(`--lumi-csv`).
+year's luminosity.
+
+Per-slice luminosity (per-fb^-1 rates of eras within a year) comes from brilcalc, computed **once**
+and committed: `tools/make_lumi_csv.sh` (run on lxplus; brilcalc comes from the BRIL container on
+cvmfs, nothing to install) writes the recorded luminosity of every golden run to `configs/lumi_brilcalc/lumi_<year>.csv`
+and prints each year's total next to `configs/lumi_fb.yaml`. When these files exist, `svval plot`
+uses them for every group (no flag; `--lumi-csv` overrides them, per-run or per-LS CSVs). Each run's
+luminosity is scaled by the fraction of its golden lumi sections present in the merge, so missing
+jobs or CRAB failures do not bias the rates; the cutflow table shows L, that coverage, and any run
+without a value (its slice then gets no per-fb^-1 point). Rerun the script when a golden JSON changes.
 
 ## Tests
 
