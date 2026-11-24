@@ -88,6 +88,18 @@ Everything runs on the LPC, from `/uscms_data/d3/anazario/SVDataValidation`.
    and open `~/data/svval_plots/index.html`. With one
    year only, the eras of that year are compared with each other; nothing is compared across runs.
 
+8. **Clean up** a production you no longer need (e.g. after rerunning it under a new tag)
+
+       python3 -m svval clean --tag v35_2026 --dry-run      # list what would go, with sizes
+       python3 -m svval clean --tag v35_2026                # asks you to type the tag, then deletes
+       python3 -m svval clean --tag v35_2026 --keep-merged  # only the per-job outputs on EOS
+
+   Without `--keep-merged` it removes the tag's EOS directory (job outputs and merge),
+   `outputs/<tag>/` and `condor/<tag>/`. `--keep-merged` deletes only the per-job files on EOS
+   (the bulk of the space), so the merge, plots, `status` and `plot` keep working. It refuses while
+   jobs of the tag are still queued, and only removes an EOS `<tag>` directory under
+   `/store/user/$USER/`. Copy anything you want to keep (e.g. the plots) to a laptop first.
+
 ## Catalog
 
 Input datasets, exclusions and detector periods are in `configs/datasets_v34.yaml`.

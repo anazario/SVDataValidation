@@ -191,6 +191,16 @@ def _cmd_merge(a):
     return 0
 
 
+def _cmd_clean(a):
+    from .clean import CleanError, clean
+    try:
+        clean(a.tag, keep_merged=a.keep_merged, eos_out=a.eos_out, dry_run=a.dry_run, yes=a.yes)
+    except CleanError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+    return 0
+
+
 def _cmd_plot(a):
     from .plotting.run import run
     merged = a.merged or os.path.join('outputs', a.tag, 'merged')
@@ -301,6 +311,15 @@ def main(argv=None):
     pl.add_argument('--p-max', type=float, default=1e-3, help='flag threshold on the KS p-value')
     pl.add_argument('--min-run-events', type=int, default=100, help='minimum selected events of a run in trends')
     pl.set_defaults(fn=_cmd_plot)
+
+    cl = sub.add_parser('clean', help="remove a tag's job outputs and merge (EOS), outputs/<tag>/ and condor/<tag>/")
+    cl.add_argument('--tag', required=True)
+    cl.add_argument('--keep-merged', action='store_true',
+                    help='remove only the per-job outputs on EOS; keep the merge, plots and condor bookkeeping')
+    cl.add_argument('--dry-run', action='store_true', help='list what would be removed, remove nothing')
+    cl.add_argument('-y', '--yes', action='store_true', help='do not ask for confirmation')
+    cl.add_argument('--eos-out', help='EOS directory /store/... of the tag (default: from condor/<tag>/tag.json)')
+    cl.set_defaults(fn=_cmd_clean)
 
     a = p.parse_args(argv)
     return a.fn(a)
