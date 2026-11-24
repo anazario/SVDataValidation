@@ -48,8 +48,8 @@ def _work(args):
     path, size, url, tree, cache_dir = args
     cf = _cache_file(cache_dir, path, size)
     if os.path.exists(cf):
-        z = np.load(cf)
-        return path, z['keys'], int(z['n']), None
+        with np.load(cf) as z:
+            return path, z['keys'], int(z['n']), None
     try:
         keys, n = read_file_lumis(url, tree)
     except Exception as e:  # noqa: BLE001 - every failure is a finding here

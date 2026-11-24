@@ -156,10 +156,10 @@ class Merged:
     @property
     def lumis(self) -> np.ndarray:
         if self._lumis is None:
-            z = np.load(os.path.join(self.dir, 'lumis.npz'))
-            t = z['lumis']
+            with np.load(os.path.join(self.dir, 'lumis.npz')) as z:
+                t, paths = z['lumis'], [str(p) for p in z['paths']]
             if 'slice' not in t.dtype.names:            # merged before the slice column existed
-                t = _add_slice_column(t, [str(p) for p in z['paths']], self._datasets_config)
+                t = _add_slice_column(t, paths, self._datasets_config)
             self._lumis = t
         return self._lumis
 

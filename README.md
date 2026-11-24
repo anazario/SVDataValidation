@@ -73,7 +73,7 @@ Everything runs on the LPC, from `/uscms_data/d3/anazario/SVDataValidation`.
 
 6. **Merge** (all jobs must be done, or `--allow-missing`)
 
-       python3 -m svval merge --tag v35_2026     # -> outputs/v35_2026/merged/
+       python3 -m svval merge --tag v35_2026     # -> EOS .../v35/v35_2026/merged/ and outputs/v35_2026/merged/
 
    Look at `checks.json` (duplicate lumis, blinding audit, slices without golden JSON) and
    `cutflow.json`. The histograms are in `all.root` (one directory per slice) and `eras/`.
@@ -174,10 +174,19 @@ From the LPC working area, with a grid proxy (`voms-proxy-init -voms cms -valid 
 * `--max-mat N` (submit and resubmit) sets condor `max_materialize`: at most N jobs of the round in
   the queue at once. Jobs not materialized yet are not in condor_q; `status` reports them as
   "waiting to materialize" while the cluster's factory is alive, so `resubmit` never sends them twice.
-* `merge` requires every job (or `--allow-missing`), hadds per era (`eras/<year><era>.root`) and
-  then everything (`all.root`, all slices), merges the lumi tables (`lumis.npz`), sums the cutflow
-  (`cutflow.json`), and fails on duplicate lumis (per year and PD, across all jobs) or a blinding
-  audit failure on the merged file, or a slice with events but none in the golden JSON (`checks.json`).
+* `merge` follows skim_submit.py `--transfer`: it stages every job output from EOS to local scratch
+  with `xrdcp` (`--workers` streams, default 8; scratch `--scratch`, default
+  `/uscmst1b_scratch/lpc1/3DayLifetime/$USER`), hadds there (eras at the same time: `--era-workers`
+  4 x `hadd -j` `--hadd-jobs` 2; no `-k`, so a corrupt input fails the merge), and copies the products
+  with `xrdcp` to EOS (`--dest`, default `<job outputs>/merged/`; `checks.json` last, as the
+  completion marker). A local copy goes to `outputs/<tag>/merged/` (`-o`) for `plot`, and scratch is
+  removed (`--keep-scratch` keeps it). An existing merge on EOS is only overwritten with `--force`;
+  `--no-upload` keeps everything local, `--dry-run` only shows the plan.
+  Products: `eras/<year><era>.root`, `all.root` (all slices), `lumis.npz` (lumi tables), `cutflow.json`,
+  `checks.json`. Requires every job (or `--allow-missing`); fails, uploading nothing, on a staging or
+  hadd error, duplicate lumis (per year and PD, across all jobs), a blinding-audit failure on the
+  merged file, or a slice with events but none in the golden JSON. The full v34 production is about
+  2,600 files to stage; the merged products are a few tens of MB.
 * The LPC `condor_*` commands are scripts without a shebang, so they are run through `/bin/sh`.
 
 ## Plots and comparisons (`svval.plotting`)

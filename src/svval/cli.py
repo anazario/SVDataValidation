@@ -180,9 +180,14 @@ def _cmd_resubmit(a):
 def _cmd_merge(a):
     from .merge import merge
     outdir = a.outdir or os.path.join('outputs', a.tag, 'merged')
-    checks = merge(a.tag, outdir, allow_missing=a.allow_missing, hadd_jobs=a.hadd_jobs)
-    print(f"merged {checks['merged']}/{checks['jobs']} jobs into {outdir}; duplicate lumis 0; "
-          f"blinding audit ok")
+    checks = merge(a.tag, outdir, allow_missing=a.allow_missing, scratch=a.scratch, dest=a.dest,
+                   upload=not a.no_upload, force=a.force, workers=a.workers, era_workers=a.era_workers,
+                   hadd_jobs=a.hadd_jobs, keep_scratch=a.keep_scratch, dry_run=a.dry_run,
+                   log=lambda m: print(m, flush=True))
+    if not a.dry_run:
+        where = f"{checks['destination']} and {outdir}" if checks.get('destination') else outdir
+        print(f"merged {checks['merged']}/{checks['jobs']} jobs into {where}; duplicate lumis 0; "
+              f"blinding audit ok")
     return 0
 
 
@@ -269,9 +274,18 @@ def main(argv=None):
 
     mg = sub.add_parser('merge', help='hadd job outputs, merge lumi tables, duplicate-lumi and blinding checks')
     mg.add_argument('--tag', required=True)
-    mg.add_argument('-o', '--outdir', help='default outputs/<tag>/merged')
+    mg.add_argument('-o', '--outdir', help='local copy of the merged products (default outputs/<tag>/merged)')
+    mg.add_argument('--dest', help='EOS directory /store/... of the merged products (default <job outputs>/merged)')
+    mg.add_argument('--no-upload', action='store_true', help='keep the merged products local only')
+    mg.add_argument('--force', action='store_true', help='overwrite an existing merge at --dest')
+    mg.add_argument('--scratch', default='/uscmst1b_scratch/lpc1/3DayLifetime/$USER',
+                    help='local scratch for staging and hadd (as skim_submit.py)')
+    mg.add_argument('--workers', type=int, default=8, help='parallel xrdcp streams')
+    mg.add_argument('--era-workers', type=int, default=4, help='eras merged at the same time')
+    mg.add_argument('--hadd-jobs', type=int, default=2, help='hadd -j of each era merge')
+    mg.add_argument('--keep-scratch', action='store_true')
     mg.add_argument('--allow-missing', action='store_true')
-    mg.add_argument('--hadd-jobs', type=int, default=4)
+    mg.add_argument('--dry-run', action='store_true')
     mg.set_defaults(fn=_cmd_merge)
 
     pl = sub.add_parser('plot', help='plots, era/year comparisons and index.html of a merged tag')
