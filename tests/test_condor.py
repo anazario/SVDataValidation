@@ -119,3 +119,13 @@ def test_status_counts_unmaterialized_jobs_as_pending(tmp_path, joblist, monkeyp
     monkeypatch.setattr(condor, 'live_factories', lambda cl: set())      # factory gone: job 2 failed
     st = condor.status('t2', base)
     assert (st['pending'], st['failed']) == ([], [2])
+
+
+def test_status_done_wins_over_queue_state(tmp_path, joblist, monkeypatch):
+    base = str(tmp_path / 'condor')
+    condor.prepare('t3', joblist, [0, 1, 2], eos_out='/store/user/x/t3', base=base)
+    monkeypatch.setattr(condor, 'done_jobs', lambda eos: {0, 1})
+    monkeypatch.setattr(condor, 'queued_jobs', lambda tag: {1: 'running', 2: 'running'})   # 1 still listed
+    monkeypatch.setattr(condor, 'live_factories', lambda cl: set())
+    st = condor.status('t3', base)
+    assert (st['done'], st['active'], st['failed']) == ([0, 1], [2], [])

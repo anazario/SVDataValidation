@@ -339,7 +339,9 @@ def status(tag: str, base: Optional[str] = None) -> dict:
     done = done_jobs(meta['eos_out']) & set(ids)
     queue = queued_jobs(tag)
     held = sorted(i for i, s in queue.items() if s == 'held')
-    active = {i for i, s in queue.items() if s in ('idle', 'running', 'transferring', 'suspended')}
+    # a job whose .json is on EOS has finished its last step; condor can list it as running for a few
+    # more minutes while the worker cleans up, so done wins over the queue state
+    active = {i for i, s in queue.items() if s in ('idle', 'running', 'transferring', 'suspended')} - done
     # late materialization: jobs of a cluster whose factory is alive but which are not in the
     # queue yet are pending, not failed (otherwise resubmit would submit them twice)
     rnds = rounds(tag, base)
